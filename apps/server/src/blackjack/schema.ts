@@ -24,6 +24,7 @@ export class SeatSchema extends Schema {
   @type('boolean') connected = true;
   @type('number') graceMs = 0;
   @type('boolean') wantReady = false;
+  @type('boolean') muted = false;
 }
 
 export class DealerSchema extends Schema {
@@ -46,4 +47,5 @@ export class BlackjackState extends Schema {
   @type('string') revealedSeed = '';
   @type('string') hostId = '';
   @type('number') round = 0;
+  @type('boolean') stakesLocked = false;
 }

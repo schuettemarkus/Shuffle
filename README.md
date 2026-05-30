@@ -49,7 +49,29 @@ That boots two processes:
 - `apps/web` on `http://localhost:5173`
 
 Open the web URL in two browsers / two devices on your network. Both land in
-the lobby, both can walk over to the Blackjack table, both sit down. Deal.
+the lobby, both can sit down at the table, both deal.
+
+### LiveKit (audio + video at the table)
+
+The table experience uses LiveKit for real-time audio and video. Without
+credentials the app still runs — you'll see avatar tiles and play normally —
+but voice + camera tiles across players require a LiveKit project.
+
+1. Sign up at https://cloud.livekit.io (free tier is plenty).
+2. Create a project and copy the API key, secret, and websocket URL.
+3. Create `apps/server/.env` based on `apps/server/.env.example`:
+   ```
+   LIVEKIT_URL=wss://YOUR_PROJECT.livekit.cloud
+   LIVEKIT_API_KEY=...
+   LIVEKIT_API_SECRET=...
+   PORT=2567
+   ```
+4. Restart the server. The boot log shows whether LiveKit is enabled.
+
+The server mints short-lived JWT tokens at `POST /livekit/token`; the client
+fetches one and joins a single venue room. Spatial audio per table is the
+next step — the seat-position stream is already wired into the audio
+context's `PannerNode` graph.
 
 ## Repo layout
 

@@ -18,7 +18,9 @@
     "@shuffle/shared": "workspace:*",
     "colyseus": "^0.16.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
     "express": "^4.21.1",
+    "livekit-server-sdk": "^2.15.4",
     "nanoid": "^5.0.9"
   },
   "devDependencies": {

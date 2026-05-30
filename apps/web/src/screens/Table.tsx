@@ -6,9 +6,13 @@ import { DealerSlot } from '../components/DealerSlot';
 import { TableControls } from '../components/TableControls';
 import { PhaseBanner } from '../components/PhaseBanner';
 import { Webcam } from '../components/Webcam';
+import { ChatPanel } from '../components/ChatPanel';
+import { HandHistoryPanel } from '../components/HandHistoryPanel';
+import { TableHostPanel } from '../components/TableHostPanel';
 import { sendAction, sendReaction, sendChipToss } from '../lib/intents';
 import { rumble, startGamepadLoop, type GamepadIntent } from '../lib/gamepad';
-import { startWebRTCMesh } from '../lib/webrtcMesh';
+import { RoomEvent, Track } from 'livekit-client';
+import type { RemoteTrackPublication } from 'livekit-client';
 
 export function Table() {
   const tableRoom = useStore((s) => s.tableRoom);
@@ -27,6 +31,7 @@ export function Table() {
   const camStream = useStore((s) => s.camStream);
   const peerStreams = useStore((s) => s.peerStreams);
   const setPeerStreams = useStore((s) => s.setPeerStreams);
+  const venue = useStore((s) => s.venue);
 
   // Subscribe to state from Colyseus and mirror into Zustand.
   useEffect(() => {
@@ -86,23 +91,54 @@ export function Table() {
     if (mySeat?.isTurn) rumble(220, 0.6);
   }, [mySeat?.isTurn]);
 
-  // WebRTC mesh — exchange video tracks across all clients in this room.
-  // Lifetime: lives as long as the table room is connected. Restarts if the
-  // local cam stream first appears after the mesh started so it can publish.
+  // LiveKit: publish our camera while we're at this table, subscribe to
+  // remote video tracks, and refresh the peerStreams map keyed by identityId.
   useEffect(() => {
-    if (!tableRoom || !mySessionId) return;
-    const mesh = startWebRTCMesh({
-      room: tableRoom,
-      mySessionId,
-      localStream: camStream,
-    });
-    const off = mesh.onChange(() => setPeerStreams(mesh.remoteStreams()));
+    if (!venue || !camStream) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await venue.publishCamera(camStream);
+      } catch (err) {
+        console.warn('[livekit] publish camera failed', err);
+      }
+    })();
     return () => {
-      off();
-      mesh.stop();
+      cancelled = true;
+      venue.unpublishCamera().catch(() => {});
+      void cancelled;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableRoom, mySessionId, camStream]);
+  }, [venue, camStream]);
+
+  // Refresh peerStreams whenever a remote video track joins / leaves.
+  useEffect(() => {
+    if (!venue) return;
+    const refresh = () => {
+      const map = new Map<string, MediaStream>();
+      for (const p of venue.room.remoteParticipants.values()) {
+        for (const pub of p.videoTrackPublications.values()) {
+          const track = pub.videoTrack;
+          if (!track?.mediaStreamTrack) continue;
+          map.set(p.identity, new MediaStream([track.mediaStreamTrack]));
+        }
+      }
+      setPeerStreams(map);
+    };
+    refresh();
+    const onSub = (_t: unknown, pub: unknown) => {
+      if ((pub as RemoteTrackPublication).kind === Track.Kind.Video) refresh();
+    };
+    venue.room
+      .on(RoomEvent.TrackSubscribed, onSub)
+      .on(RoomEvent.TrackUnsubscribed, refresh)
+      .on(RoomEvent.ParticipantDisconnected, refresh);
+    return () => {
+      venue.room
+        .off(RoomEvent.TrackSubscribed, onSub)
+        .off(RoomEvent.TrackUnsubscribed, refresh)
+        .off(RoomEvent.ParticipantDisconnected, refresh);
+    };
+  }, [venue, setPeerStreams]);
 
   // Wire the gamepad loop -> table actions.
   useEffect(() => {
@@ -214,6 +250,12 @@ export function Table() {
       <ReactionsLayer reactions={reactions} />
 
       {lastResult && <HandResultRibbon r={lastResult} />}
+
+      <ChatPanel room={tableRoom} mySessionId={mySessionId} />
+      <HandHistoryPanel room={tableRoom} />
+      {tableRoom && table.hostId === mySessionId && (
+        <TableHostPanel room={tableRoom} table={table} mySessionId={mySessionId} />
+      )}
     </div>
   );
 }
@@ -260,7 +302,7 @@ function FilmStrip({
           key={s.playerId}
           name={s.displayName}
           mine={s.playerId === mySessionId}
-          stream={s.playerId === mySessionId ? undefined : peerStreams.get(s.playerId)}
+          stream={s.playerId === mySessionId ? undefined : peerStreams.get(s.identityId)}
           size="sm"
         />
       ))}

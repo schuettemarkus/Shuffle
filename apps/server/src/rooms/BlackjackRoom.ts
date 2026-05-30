@@ -7,17 +7,23 @@
 
 import { Room, Client } from '@colyseus/core';
 import { ArraySchema } from '@colyseus/schema';
+import { nanoid } from 'nanoid';
 import {
   BET_WINDOW_MS,
+  CHAT_HISTORY,
+  C2S,
   DEFAULT_BUY_IN,
+  HAND_HISTORY,
   RECONNECT_GRACE_MS,
   ROOMS,
   S2C,
   SETTLE_MS,
   TURN_CLOCK_MS,
-  type TableAction,
-  type HandResult,
+  type ChatMessage,
   type Emote,
+  type HandRecord,
+  type HandResult,
+  type TableAction,
 } from '@shuffle/shared';
 import { BlackjackState, CardSchema, SeatSchema } from '../blackjack/schema.js';
 import {
@@ -35,12 +41,7 @@ import {
   type Outcome,
 } from '../blackjack/engine.js';
 import * as wallet from '../wallet.js';
-import {
-  publishStatus,
-  configBus,
-  getTableConfig,
-  type TableConfig,
-} from '../lobbyRegistry.js';
+import { publishStatus } from '../lobbyRegistry.js';
 import type { Card } from '@shuffle/shared';
 
 const MAX_SEATS = 6;
@@ -62,7 +63,8 @@ export class BlackjackRoom extends Room<BlackjackState> {
   private tick?: NodeJS.Timeout;
   private actingSeat = -1; // index of seat whose turn it is in 'playing'
   private prevPhase = '';
-  private onConfigChange = (c: TableConfig) => this.applyConfig(c);
+  private chatLog: ChatMessage[] = [];
+  private handLog: HandRecord[] = [];
 
   override onCreate(_options?: unknown) {
     this.setState(new BlackjackState());
@@ -76,66 +78,77 @@ export class BlackjackRoom extends Room<BlackjackState> {
     this.setPatchRate(50);
     this.shoe = shuffle(buildShoe(4), newSeed().seed);
 
-    this.onMessage('action', (client, payload: TableAction) => {
+    this.onMessage(C2S.action, (client, payload: TableAction) => {
       this.handleAction(client, payload);
     });
-    this.onMessage('reaction', (client, payload: { emote: Emote }) => {
+    this.onMessage(C2S.reaction, (client, payload: { emote: Emote }) => {
       this.broadcast(S2C.reaction, { from: client.sessionId, emote: payload.emote });
     });
-    this.onMessage('chipToss', (client) => {
+    this.onMessage(C2S.chipToss, (client) => {
       this.broadcast(S2C.chipToss, { from: client.sessionId });
     });
+    this.onMessage(C2S.chat, (client, payload: { text: string }) => {
+      const text = (payload?.text ?? '').toString().trim().slice(0, 280);
+      if (!text) return;
+      const seat = this.findSeatBySession(client.sessionId);
+      const name = (seat?.displayName ||
+        (client.userData as JoinOptions | undefined)?.displayName ||
+        'Guest').slice(0, 24);
+      const msg: ChatMessage = {
+        id: nanoid(8),
+        from: client.sessionId,
+        name,
+        text,
+        ts: Date.now(),
+      };
+      this.chatLog.push(msg);
+      if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
+      this.broadcast(S2C.chat, msg);
+    });
 
-    // ---- WebRTC mesh signaling (Phase 1 substitute for LiveKit) ----
-    // The server is a dumb relay: it forwards offer/answer/ice between two
-    // named peers and broadcasts presence so clients know who to dial.
+    // ---- Host controls ----
     this.onMessage(
-      'webrtcSignal',
-      (client, msg: { to: string; kind: string; data: unknown }) => {
-        if (!msg?.to || !msg.kind) return;
-        const target = this.clients.find((c) => c.sessionId === msg.to);
-        if (!target) return;
-        target.send(S2C.webrtcSignal, {
-          from: client.sessionId,
-          kind: msg.kind,
-          data: msg.data,
-        });
+      C2S.hostSetStakes,
+      (client, m: { minBet: number; maxBet: number }) => {
+        if (!this.isHost(client) || this.state.stakesLocked) return;
+        const min = Math.max(5, Math.floor(m?.minBet ?? this.state.minBet));
+        const max = Math.max(min, Math.floor(m?.maxBet ?? this.state.maxBet));
+        this.state.minBet = min;
+        this.state.maxBet = max;
       },
     );
-    this.onMessage('webrtcReady', (client) => {
-      // Tell everyone else this peer is ready to receive offers.
-      this.broadcast(
-        S2C.webrtcPeerReady,
-        { sessionId: client.sessionId },
-        { except: client },
-      );
-      // And tell the new client about everyone already present.
-      for (const c of this.clients) {
-        if (c.sessionId === client.sessionId) continue;
-        client.send(S2C.webrtcPeerReady, { sessionId: c.sessionId });
+    this.onMessage(C2S.hostLockStakes, (client, m: { locked: boolean }) => {
+      if (!this.isHost(client)) return;
+      this.state.stakesLocked = !!m?.locked;
+    });
+    this.onMessage(C2S.hostPauseTable, (client, m: { paused: boolean }) => {
+      if (!this.isHost(client)) return;
+      const paused = !!m?.paused;
+      if (paused) {
+        if (this.state.phase !== 'paused') {
+          this.prevPhase = this.state.phase;
+          this.state.phase = 'paused';
+        }
+      } else if (this.state.phase === 'paused') {
+        this.state.phase = (this.prevPhase as typeof this.state.phase) || 'waiting';
       }
+    });
+    this.onMessage(C2S.hostKick, (client, m: { sessionId: string }) => {
+      if (!this.isHost(client)) return;
+      if (!m?.sessionId || m.sessionId === client.sessionId) return;
+      const target = this.clients.find((c) => c.sessionId === m.sessionId);
+      target?.leave(4000, 'Removed by host');
+    });
+    // Mute is enforced at the LiveKit layer (the client respects the flag).
+    this.onMessage(C2S.hostMute, (client, m: { sessionId: string; muted: boolean }) => {
+      if (!this.isHost(client)) return;
+      if (!m?.sessionId) return;
+      const seat = this.findSeatBySession(m.sessionId);
+      if (seat) seat.muted = !!m.muted;
     });
 
     this.tick = setInterval(() => this.onTick(), TICK_MS);
-    // Apply any host-set config that already exists, then subscribe.
-    const existing = getTableConfig(this.state.tableId);
-    if (existing) this.applyConfig(existing);
-    configBus.on('change', this.onConfigChange);
     this.pushLobbyStatus();
-  }
-
-  private applyConfig(c: TableConfig) {
-    if (c.tableId !== this.state.tableId) return;
-    this.state.minBet = c.minBet;
-    this.state.maxBet = c.maxBet;
-    if (c.paused) {
-      if (this.state.phase !== 'paused') {
-        this.prevPhase = this.state.phase;
-        this.state.phase = 'paused';
-      }
-    } else if (this.state.phase === 'paused') {
-      this.state.phase = (this.prevPhase as typeof this.state.phase) || 'waiting';
-    }
   }
 
   private pushLobbyStatus() {
@@ -181,15 +194,17 @@ export class BlackjackRoom extends Room<BlackjackState> {
       existing.connected = true;
       existing.graceMs = 0;
     }
+    // Bring the new client up to speed on chat + recent hand history.
+    for (const msg of this.chatLog) client.send(S2C.chat, msg);
+    client.send(S2C.handHistory, this.handLog);
   }
 
   override async onLeave(client: Client, consented: boolean) {
-    // Tell every other client to tear down its peer connection with this one.
-    this.broadcast(
-      S2C.webrtcPeerGone,
-      { sessionId: client.sessionId },
-      { except: client },
-    );
+    // Host migration: if the host drops, the next client in the room inherits.
+    if (this.state.hostId === client.sessionId) {
+      const next = this.clients.find((c) => c.sessionId !== client.sessionId);
+      this.state.hostId = next?.sessionId ?? '';
+    }
     const seat = this.findSeatBySession(client.sessionId);
     if (!seat) return;
     seat.connected = false;
@@ -211,7 +226,10 @@ export class BlackjackRoom extends Room<BlackjackState> {
 
   override onDispose() {
     if (this.tick) clearInterval(this.tick);
-    configBus.off('change', this.onConfigChange);
+  }
+
+  private isHost(client: Client): boolean {
+    return this.state.hostId === client.sessionId;
   }
 
   // ---------- action routing ----------
@@ -559,6 +577,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
 
   private settleHand() {
     const perSeat: HandResult['perSeat'] = [];
+    const recordSeats: HandRecord['perSeat'] = [];
     for (const s of this.state.seats) {
       if (s.phase === 'empty' || s.bet === 0) continue;
       const playerCards: Card[] = this.toCards(s.hand);
@@ -570,6 +589,14 @@ export class BlackjackRoom extends Room<BlackjackState> {
       const delta = ret - s.bet;
       s.stack += ret;
       perSeat.push({ seatIndex: s.index, playerId: s.playerId, delta, outcome });
+      recordSeats.push({
+        seatIndex: s.index,
+        name: s.displayName,
+        hand: playerCards.map((c) => ({ rank: c.rank, suit: c.suit })),
+        bet: s.bet,
+        delta,
+        outcome,
+      });
       s.bet = 0;
       s.phase = 'settled';
     }
@@ -579,6 +606,19 @@ export class BlackjackRoom extends Room<BlackjackState> {
       dealerValue: handValue(this.dealerHandHidden).total,
     };
     this.broadcast(S2C.handResult, result);
+    // Record for the hand-history viewer.
+    const record: HandRecord = {
+      round: this.state.round,
+      endedAt: Date.now(),
+      dealerHand: this.dealerHandHidden.map((c) => ({ rank: c.rank, suit: c.suit })),
+      dealerValue: handValue(this.dealerHandHidden).total,
+      perSeat: recordSeats,
+      seed: this.currentSeed,
+      commitHash: this.state.commitHash,
+    };
+    this.handLog.unshift(record);
+    if (this.handLog.length > HAND_HISTORY) this.handLog.length = HAND_HISTORY;
+    this.broadcast(S2C.handHistory, this.handLog);
     this.state.revealedSeed = this.currentSeed;
     this.broadcast(S2C.shuffleReveal, {
       round: this.state.round,

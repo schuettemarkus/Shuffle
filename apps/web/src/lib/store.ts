@@ -9,6 +9,7 @@ import type {
   SeatPhase,
   TablePhase,
 } from '@shuffle/shared';
+import type { LiveKitVenue } from './livekit';
 
 export interface FloorPlayer {
   sessionId: string;
@@ -100,8 +101,10 @@ interface State {
   // Cam
   camStream: MediaStream | null;
   camError: string | null;
-  // Peer video — sessionId -> remote MediaStream from WebRTC mesh
+  // Peer video — sessionId -> remote MediaStream from LiveKit
   peerStreams: Map<string, MediaStream>;
+  // LiveKit venue connection (persistent across screens)
+  venue: LiveKitVenue | null;
 
   setView: (v: State['view']) => void;
   setLobbyRoom: (r: Room | null) => void;
@@ -117,6 +120,7 @@ interface State {
   dismissReaction: (id: number) => void;
   setCam: (s: MediaStream | null, err?: string | null) => void;
   setPeerStreams: (m: Map<string, MediaStream>) => void;
+  setVenue: (v: LiveKitVenue | null) => void;
 }
 
 export const useStore = create<State>((set) => ({
@@ -135,6 +139,7 @@ export const useStore = create<State>((set) => ({
   camStream: null,
   camError: null,
   peerStreams: new Map(),
+  venue: null,
 
   setView: (v) => set({ view: v }),
   setLobbyRoom: (r) => set({ lobbyRoom: r }),
@@ -155,6 +160,7 @@ export const useStore = create<State>((set) => ({
     set((s) => ({ reactions: s.reactions.filter((r) => r.id !== id) })),
   setCam: (s, err = null) => set({ camStream: s, camError: err }),
   setPeerStreams: (m) => set({ peerStreams: new Map(m) }),
+  setVenue: (v) => set({ venue: v }),
 }));
 
 // Derived selector — find my seat (if any).

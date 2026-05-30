@@ -12,6 +12,7 @@
   "dependencies": {
     "@shuffle/shared": "workspace:*",
     "colyseus.js": "^0.16.0",
+    "livekit-client": "^2.19.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.2"
