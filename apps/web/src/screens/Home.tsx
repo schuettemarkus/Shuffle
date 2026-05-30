@@ -1,0 +1,59 @@
+import { useState } from 'react';
+import { useStore } from '../lib/store';
+import { setDisplayName } from '../lib/identity';
+
+export function Home() {
+  const setView = useStore((s) => s.setView);
+  const setIdentity = useStore((s) => s.setIdentity);
+  const myIdentityId = useStore((s) => s.myIdentityId);
+  const [name, setName] = useState('');
+
+  const submit = () => {
+    const clean = name.trim().slice(0, 24);
+    if (!clean) return;
+    setDisplayName(clean);
+    setIdentity(myIdentityId, clean);
+    setView('lobby');
+  };
+
+  return (
+    <div className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 text-center">
+      <p className="mb-4 text-xs font-semibold uppercase tracking-[0.34em] text-sunset opacity-90 animate-rise">
+        Brand & design direction
+      </p>
+      <h1 className="wordmark text-[clamp(72px,16vw,160px)] leading-[.9] animate-rise">
+        shuffle<span className="wordmark-dot">.</span>
+      </h1>
+      <p className="mt-4 max-w-md text-base text-ink-soft sm:text-lg animate-rise">
+        A warm corner of the internet where friends pull up a chair, deal a hand, and hang out — face to face.
+      </p>
+
+      <div className="mt-10 w-full rounded-brand border border-border bg-surface p-5 shadow-brand animate-rise">
+        <label className="block text-left text-xs font-semibold uppercase tracking-[0.18em] text-ink-mute">
+          What should we call you?
+        </label>
+        <input
+          autoFocus
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit();
+          }}
+          placeholder="Maya"
+          className="mt-2 w-full rounded-xl border border-border bg-bg-2 px-4 py-3 text-lg text-ink outline-none ring-sunset/40 focus:ring-2"
+          maxLength={24}
+        />
+        <button
+          onClick={submit}
+          disabled={!name.trim()}
+          className="mt-4 w-full rounded-xl bg-gradient-to-br from-sunset-bright to-sunset px-4 py-3 text-base font-bold text-white shadow-sunset transition disabled:opacity-40"
+        >
+          Pull up a chair →
+        </button>
+        <p className="mt-3 text-xs text-ink-mute">
+          Play-money & social only. Shuffle never deals in real money.
+        </p>
+      </div>
+    </div>
+  );
+}

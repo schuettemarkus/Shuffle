@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shuffle — Brand & Design Direction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Hero sunset ramp */
+    --sunset:#FF6A3D;
+    --sunset-bright:#FF7E4A;
+    --ember:#FF8A4C;
+    --amber:#FFB14E;
+    --rose:#FF5C7A;
+    --dusk-violet:#7A4FA3;
+    --indigo:#2C2552;
+
+    /* Surfaces — deep warm dusk */
+    --bg:#14101A;
+    --bg-2:#1A1422;
+    --surface:#211A2B;
+    --surface-2:#2B2238;
+    --elevated:#352A45;
+    --border:rgba(255,228,210,.10);
+    --border-hi:rgba(255,228,210,.18);
+
+    /* Felt — teal complement */
+    --felt:#0E5C57;
+    --felt-deep:#093F3C;
+
+    /* Text */
+    --ink:#FBF3EB;
+    --ink-soft:#D9CCD4;
+    --ink-mute:#9A8FA3;
+
+    /* Functional */
+    --confirm:#FF6A3D;
+    --win:#3FBE93;
+    --fold:#E0556B;
+
+    /* Heat states */
+    --heat-fire-a:#FF4D2E; --heat-fire-b:#FF9D3D;
+    --heat-buzz:#FFB14E;
+    --heat-cruise:#2BB89E;
+    --heat-cold:#5BC7E6;
+    --heat-grave:#8A8194;
+    --heat-coaster:#FF5C9E;
+    --heat-whale:#46A0E6;
+    --heat-heater:#FFCB52;
+
+    --r:18px;
+    --shadow:0 24px 60px -24px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:'Hanken Grotesk',sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+    overflow-x:hidden;
+  }
+
+  /* Atmospheric sunset glow */
+  .atmos{position:fixed;inset:0;z-index:0;pointer-events:none}
+  .atmos::before{
+    content:"";position:absolute;left:50%;top:-22%;transform:translateX(-50%);
+    width:160vw;height:90vh;border-radius:50%;
+    background:radial-gradient(closest-side,
+      rgba(255,106,61,.55),
+      rgba(255,92,122,.28) 40%,
+      rgba(122,79,163,.18) 65%,
+      transparent 78%);
+    filter:blur(16px);
+  }
+  .atmos::after{
+    content:"";position:absolute;inset:0;
+    background:
+      radial-gradient(60% 40% at 80% 110%, rgba(43,184,158,.10), transparent 60%),
+      linear-gradient(180deg, transparent 40%, rgba(10,7,14,.5));
+  }
+  /* grain */
+  .grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.05;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+
+  .wrap{position:relative;z-index:2;max-width:1080px;margin:0 auto;padding:0 28px 120px}
+
+  /* Header */
+  header{padding:120px 0 70px;text-align:center}
+  .eyebrow{font-size:13px;letter-spacing:.34em;text-transform:uppercase;color:var(--sunset);font-weight:600;
+    opacity:0;animation:rise .8s .1s forwards}
+  .wordmark{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;font-size:clamp(64px,13vw,150px);
+    line-height:.92;letter-spacing:-.04em;margin:14px 0 8px;
+    background:linear-gradient(100deg,var(--amber),var(--sunset) 38%,var(--rose) 78%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    opacity:0;animation:rise .9s .2s forwards}
+  .wordmark .dot{color:var(--sunset);-webkit-text-fill-color:var(--sunset)}
+  .tagline{color:var(--ink-soft);font-size:clamp(16px,2.2vw,21px);max-width:520px;margin:0 auto;
+    opacity:0;animation:rise .9s .35s forwards}
+  .cards{display:flex;gap:8px;justify-content:center;margin-top:26px;opacity:0;animation:rise .9s .5s forwards}
+  .card{width:34px;height:48px;border-radius:8px;background:linear-gradient(160deg,#fff,#efe6df);
+    box-shadow:0 8px 20px -6px rgba(0,0,0,.6);position:relative;transition:transform .4s}
+  .card:nth-child(1){transform:rotate(-12deg) translateY(4px)}
+  .card:nth-child(2){transform:rotate(-4deg)}
+  .card:nth-child(3){transform:rotate(4deg)}
+  .card:nth-child(4){transform:rotate(12deg) translateY(4px)}
+  .cards:hover .card{transform:rotate(0) translateY(0)}
+  .card::after{content:"";position:absolute;inset:6px;border-radius:4px;border:1.5px solid rgba(255,106,61,.5)}
+
+  /* Section scaffolding */
+  section{margin-top:64px;opacity:0;transform:translateY(24px);animation:rise .8s forwards;animation-timeline:view();animation-range:entry 0% cover 22%}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:22px}
+  .sec-num{font-family:'Bricolage Grotesque';font-weight:700;color:var(--sunset);font-size:14px;letter-spacing:.1em}
+  .sec-title{font-family:'Bricolage Grotesque';font-weight:700;font-size:clamp(22px,3.4vw,30px);letter-spacing:-.02em}
+  .sec-sub{color:var(--ink-mute);font-size:14px;margin-left:auto;text-align:right;max-width:300px}
+
+  /* Color palette */
+  .ramp{height:120px;border-radius:var(--r);overflow:hidden;border:1px solid var(--border);
+    background:linear-gradient(100deg,var(--amber),var(--sunset) 32%,var(--rose) 64%,var(--dusk-violet) 100%);
+    display:flex;align-items:flex-end;padding:14px;box-shadow:var(--shadow)}
+  .ramp span{font-family:'Bricolage Grotesque';font-weight:700;color:rgba(20,16,26,.85);font-size:14px}
+  .swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:12px;margin-top:14px}
+  .sw{border-radius:14px;border:1px solid var(--border);overflow:hidden;background:var(--surface)}
+  .sw .chip{height:74px}
+  .sw .meta{padding:10px 12px}
+  .sw .name{font-weight:600;font-size:13.5px}
+  .sw .hex{font-size:11.5px;color:var(--ink-mute);letter-spacing:.04em;font-family:'Bricolage Grotesque'}
+
+  /* Typography */
+  .type-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:30px;box-shadow:var(--shadow)}
+  .type-row{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--border);padding:18px 0;gap:20px}
+  .type-row:last-child{border-bottom:0;padding-bottom:0}
+  .type-row:first-child{padding-top:0}
+  .specimen-display{font-family:'Bricolage Grotesque';font-weight:800;font-size:38px;letter-spacing:-.03em;line-height:1}
+  .specimen-body{font-size:17px;color:var(--ink-soft);max-width:62%}
+  .type-label{font-family:'Bricolage Grotesque';font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-mute);white-space:nowrap}
+
+  /* Components grid */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}.sec-sub{display:none}}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:22px;box-shadow:var(--shadow)}
+  .panel h4{font-family:'Bricolage Grotesque';font-weight:700;font-size:15px;margin-bottom:16px;color:var(--ink)}
+  .panel .cap{font-size:12px;color:var(--ink-mute);margin-top:14px}
+
+  /* Buttons */
+  .btn{font-family:'Hanken Grotesk';font-weight:700;font-size:15px;border:none;border-radius:13px;
+    padding:13px 22px;cursor:pointer;transition:transform .15s, box-shadow .2s;color:#fff}
+  .btn-primary{background:linear-gradient(135deg,var(--sunset-bright),var(--sunset));
+    box-shadow:0 10px 26px -8px rgba(255,106,61,.7), inset 0 1px 0 rgba(255,255,255,.25)}
+  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 16px 34px -8px rgba(255,106,61,.8)}
+  .btn-ghost{background:rgba(255,255,255,.04);border:1px solid var(--border-hi);color:var(--ink)}
+  .btn-fold{background:rgba(224,85,107,.14);border:1px solid rgba(224,85,107,.45);color:#FF9DAC}
+  .btn-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+  /* Bet control */
+  .bet{margin-top:6px}
+  .bet-track{height:8px;border-radius:99px;background:var(--elevated);position:relative;margin:18px 0 12px}
+  .bet-fill{position:absolute;left:0;top:0;bottom:0;width:58%;border-radius:99px;
+    background:linear-gradient(90deg,var(--amber),var(--sunset))}
+  .bet-knob{position:absolute;left:58%;top:50%;width:20px;height:20px;border-radius:50%;transform:translate(-50%,-50%);
+    background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.5),0 0 0 4px rgba(255,106,61,.35)}
+  .presets{display:flex;gap:7px;flex-wrap:wrap}
+  .preset{font-size:12px;font-weight:600;padding:7px 12px;border-radius:9px;background:var(--elevated);
+    border:1px solid var(--border);color:var(--ink-soft);cursor:pointer}
+  .preset.on{background:linear-gradient(135deg,var(--sunset-bright),var(--sunset));color:#fff;border-color:transparent}
+  .bet-amt{font-family:'Bricolage Grotesque';font-weight:800;font-size:30px;letter-spacing:-.02em}
+  .bet-amt small{font-size:14px;color:var(--ink-mute);font-weight:600}
+
+  /* Video tile */
+  .tile{border-radius:16px;overflow:hidden;position:relative;aspect-ratio:4/3;
+    background:linear-gradient(160deg,#FF9D52,#FF5C7A 55%,#7A4FA3);border:1px solid var(--border-hi)}
+  .tile .head{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:46%;height:74%;
+    background:radial-gradient(circle at 50% 38%, #3a3030 0 38%, #2a2228 39% 60%, transparent 61%);
+    border-radius:50% 50% 46% 46%;filter:blur(.3px)}
+  .tile .nameplate{position:absolute;left:10px;bottom:10px;background:rgba(20,16,26,.6);backdrop-filter:blur(8px);
+    padding:5px 11px;border-radius:9px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+  .tile .dot-live{width:7px;height:7px;border-radius:50%;background:var(--sunset);box-shadow:0 0 8px var(--sunset)}
+  .tile .theme-tag{position:absolute;right:10px;top:10px;background:rgba(20,16,26,.55);backdrop-filter:blur(8px);
+    padding:4px 9px;border-radius:8px;font-size:11px;color:var(--ink-soft)}
+
+  /* Felt swatch */
+  .felt{aspect-ratio:16/7;border-radius:20px;background:
+    radial-gradient(120% 120% at 50% 0%, #14706a, var(--felt) 45%, var(--felt-deep) 100%);
+    border:1px solid rgba(255,255,255,.06);position:relative;overflow:hidden;
+    box-shadow:inset 0 2px 30px rgba(0,0,0,.4), var(--shadow);display:flex;align-items:center;justify-content:center}
+  .felt::before{content:"";position:absolute;inset:18px;border-radius:200px/120px;border:2px solid rgba(255,228,210,.14)}
+  .felt-mark{font-family:'Bricolage Grotesque';font-weight:800;font-size:26px;letter-spacing:.02em;color:rgba(255,228,210,.5)}
+  .chips-demo{position:absolute;display:flex;gap:-6px}
+  .pchip{width:30px;height:30px;border-radius:50%;border:3px dashed rgba(255,255,255,.7);margin-left:-8px;
+    box-shadow:0 6px 14px rgba(0,0,0,.4)}
+  .pchip:nth-child(1){background:var(--sunset);margin-left:0}
+  .pchip:nth-child(2){background:#fff}
+  .pchip:nth-child(3){background:var(--indigo);border-color:rgba(255,255,255,.4)}
+
+  /* Heat badges */
+  .heat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px}
+  .heat{border-radius:14px;padding:16px;border:1px solid var(--border);background:var(--surface);position:relative;overflow:hidden}
+  .heat .lab{display:flex;align-items:center;gap:9px;font-family:'Bricolage Grotesque';font-weight:700;font-size:15px}
+  .heat .emoji{font-size:19px}
+  .heat .desc{font-size:12px;color:var(--ink-mute);margin-top:7px}
+  .heat .bar{height:6px;border-radius:99px;background:var(--elevated);margin-top:13px;overflow:hidden}
+  .heat .bar i{display:block;height:100%;border-radius:99px}
+  .heat .score{position:absolute;right:14px;top:14px;font-family:'Bricolage Grotesque';font-weight:800;font-size:13px;opacity:.85}
+  .fire{background:linear-gradient(160deg,rgba(255,77,46,.16),var(--surface) 70%);border-color:rgba(255,106,61,.35)}
+  .fire .emoji{animation:flick 1.6s infinite}
+  @keyframes flick{0%,100%{transform:rotate(-4deg) scale(1)}50%{transform:rotate(5deg) scale(1.14)}}
+
+  /* Lobby table card */
+  .lobby{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+  .tcard{background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;
+    transition:transform .2s, border-color .2s;box-shadow:var(--shadow)}
+  .tcard:hover{transform:translateY(-4px);border-color:var(--border-hi)}
+  .tcard .top{height:84px;position:relative;
+    background:radial-gradient(120% 120% at 50% 0%, #14706a, var(--felt) 60%, var(--felt-deep))}
+  .tcard .top .badge{position:absolute;left:12px;top:12px;display:flex;align-items:center;gap:6px;
+    padding:5px 10px;border-radius:99px;font-size:12px;font-weight:700;backdrop-filter:blur(8px)}
+  .badge-fire{background:rgba(255,77,46,.92);color:#fff}
+  .badge-cruise{background:rgba(43,184,158,.92);color:#06231f}
+  .badge-cold{background:rgba(91,199,230,.9);color:#062430}
+  .tcard .seats{position:absolute;right:12px;top:14px;font-size:12px;color:rgba(255,255,255,.85);font-weight:600}
+  .tcard .body{padding:14px 16px}
+  .tcard .gname{font-family:'Bricolage Grotesque';font-weight:700;font-size:16px}
+  .tcard .stakes{font-size:12.5px;color:var(--ink-mute);margin-top:2px}
+  .tcard .foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px}
+  .avatars{display:flex}
+  .av{width:24px;height:24px;border-radius:50%;border:2px solid var(--surface);margin-left:-8px;
+    background:linear-gradient(140deg,var(--amber),var(--rose))}
+  .av:first-child{margin-left:0}
+  .join{font-size:12.5px;font-weight:700;color:var(--sunset)}
+
+  footer{margin-top:80px;text-align:center;color:var(--ink-mute);font-size:13px;
+    border-top:1px solid var(--border);padding-top:30px}
+  footer b{color:var(--ink-soft);font-weight:600}
+
+  @keyframes rise{to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="atmos"></div>
+<div class="grain"></div>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Brand &amp; Design Direction</div>
+    <h1 class="wordmark">shuffle<span class="dot">.</span></h1>
+    <p class="tagline">A warm little corner of the internet where friends pull up a chair, deal a hand, and hang out — face to face.</p>
+    <div class="cards" title="Riffle">
+      <div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div>
+    </div>
+  </header>
+
+  <!-- COLOR -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <span class="sec-title">Sunset palette</span>
+      <span class="sec-sub">Vibrant matte orange as the hero, set against a deep dusk floor and a teal felt.</span>
+    </div>
+    <div class="ramp"><span>The sunset ramp — used for hero moments, the wordmark, and the Heat Index</span></div>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#FF6A3D"></div><div class="meta"><div class="name">Sunset</div><div class="hex">#FF6A3D · primary</div></div></div>
+      <div class="sw"><div class="chip" style="background:#FFB14E"></div><div class="meta"><div class="name">Amber</div><div class="hex">#FFB14E</div></div></div>
+      <div class="sw"><div class="chip" style="background:#FF5C7A"></div><div class="meta"><div class="name">Rose</div><div class="hex">#FF5C7A</div></div></div>
+      <div class="sw"><div class="chip" style="background:#7A4FA3"></div><div class="meta"><div class="name">Dusk Violet</div><div class="hex">#7A4FA3</div></div></div>
+      <div class="sw"><div class="chip" style="background:#0E5C57"></div><div class="meta"><div class="name">Felt Teal</div><div class="hex">#0E5C57 · tables</div></div></div>
+      <div class="sw"><div class="chip" style="background:#14101A"></div><div class="meta"><div class="name">Dusk Floor</div><div class="hex">#14101A · base</div></div></div>
+      <div class="sw"><div class="chip" style="background:#211A2B"></div><div class="meta"><div class="name">Surface</div><div class="hex">#211A2B</div></div></div>
+      <div class="sw"><div class="chip" style="background:#FBF3EB"></div><div class="meta"><div class="name">Warm Ink</div><div class="hex">#FBF3EB · text</div></div></div>
+    </div>
+  </section>
+
+  <!-- TYPE -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <span class="sec-title">Typography</span>
+      <span class="sec-sub">A characterful display face for personality, a clean grotesque for the quiet UI.</span>
+    </div>
+    <div class="type-card">
+      <div class="type-row">
+        <div class="specimen-display">Deal me in.</div>
+        <div class="type-label">Bricolage Grotesque · Display</div>
+      </div>
+      <div class="type-row">
+        <div class="specimen-body">Hanken Grotesk keeps the interface calm and legible — bet amounts, chat, menus, and the Meet-style chrome that frames the room without shouting.</div>
+        <div class="type-label">Hanken Grotesk · Body / UI</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPONENTS -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <span class="sec-title">Core components</span>
+      <span class="sec-sub">Sleek and quiet, warmed by the sunset accent on every primary action.</span>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h4>Actions</h4>
+        <div class="btn-row">
+          <button class="btn btn-primary">Call · 200</button>
+          <button class="btn btn-ghost">Check</button>
+          <button class="btn btn-fold">Fold</button>
+        </div>
+        <div class="cap">The sunset gradient is reserved for the single most important action on screen — everything else stays muted.</div>
+      </div>
+      <div class="panel">
+        <h4>Bet sizing</h4>
+        <div class="bet">
+          <div class="bet-amt">340 <small>chips · ½ pot</small></div>
+          <div class="bet-track"><div class="bet-fill"></div><div class="bet-knob"></div></div>
+          <div class="presets">
+            <span class="preset">Min</span>
+            <span class="preset on">½ Pot</span>
+            <span class="preset">Pot</span>
+            <span class="preset">2×</span>
+            <span class="preset">All-in</span>
+          </div>
+        </div>
+        <div class="cap">Shoulder buttons cycle these presets; the stick fine-tunes the amount.</div>
+      </div>
+      <div class="panel">
+        <h4>Player video — head on a themed backdrop</h4>
+        <div class="tile">
+          <div class="head"></div>
+          <div class="theme-tag">🌴 Tropical Beach</div>
+          <div class="nameplate"><span class="dot-live"></span> Maya · 2,150</div>
+        </div>
+        <div class="cap">Segmented head composited onto the table's voted background. Clean nameplate carries chip count + live state.</div>
+      </div>
+      <div class="panel">
+        <h4>The felt</h4>
+        <div class="felt">
+          <span class="felt-mark">shuffle</span>
+          <div class="chips-demo" style="bottom:18px"><span class="pchip"></span><span class="pchip"></span><span class="pchip"></span></div>
+        </div>
+        <div class="cap">Deep teal complements the orange chips and warm faces; soft inner glow keeps it premium, not garish.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HEAT INDEX -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <span class="sec-title">The Heat Index, in color</span>
+      <span class="sec-sub">A glanceable vibe meter — each state has its own hue and badge.</span>
+    </div>
+    <div class="heat-grid">
+      <div class="heat fire"><span class="score" style="color:var(--heat-fire-b)">92</span><div class="lab"><span class="emoji">🔥</span> On Fire</div><div class="desc">Big pots, wild swings, everyone leaning in.</div><div class="bar"><i style="width:92%;background:linear-gradient(90deg,var(--heat-fire-a),var(--heat-fire-b))"></i></div></div>
+      <div class="heat"><span class="score" style="color:var(--heat-buzz)">66</span><div class="lab"><span class="emoji">⚡</span> Buzzing</div><div class="desc">Full table, fast play, lots of chatter.</div><div class="bar"><i style="width:66%;background:var(--heat-buzz)"></i></div></div>
+      <div class="heat"><span class="score" style="color:var(--heat-cruise)">44</span><div class="lab"><span class="emoji">😎</span> Cruising</div><div class="desc">Steady, balanced, easygoing rhythm.</div><div class="bar"><i style="width:44%;background:var(--heat-cruise)"></i></div></div>
+      <div class="heat"><span class="score" style="color:var(--heat-cold)">22</span><div class="lab"><span class="emoji">🧊</span> Cold</div><div class="desc">Quiet and slow — the felt's gone frosty.</div><div class="bar"><i style="width:22%;background:var(--heat-cold)"></i></div></div>
+      <div class="heat"><span class="score" style="color:var(--heat-grave)">6</span><div class="lab"><span class="emoji">💀</span> Graveyard</div><div class="desc">Empty or stalled — needs life.</div><div class="bar"><i style="width:8%;background:var(--heat-grave)"></i></div></div>
+      <div class="heat"><span class="score" style="color:var(--heat-coaster)">71</span><div class="lab"><span class="emoji">🎢</span> Rollercoaster</div><div class="desc">Stacks flying everywhere — pure variance.</div><div class="bar"><i style="width:71%;background:var(--heat-coaster)"></i></div></div>
+      <div class="heat"><span class="score" style="color:var(--heat-whale)">58</span><div class="lab"><span class="emoji">🐳</span> Whale Watch</div><div class="desc">One giant stack at the table.</div><div class="bar"><i style="width:58%;background:var(--heat-whale)"></i></div></div>
+      <div class="heat"><span class="score" style="color:var(--heat-heater)">63</span><div class="lab"><span class="emoji">🍀</span> Heater</div><div class="desc">Someone's on a winning streak.</div><div class="bar"><i style="width:63%;background:var(--heat-heater)"></i></div></div>
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <span class="sec-title">The floor, at a glance</span>
+      <span class="sec-sub">Heat badges turn the table browser into a real "where's the action" radar — vital on mobile.</span>
+    </div>
+    <div class="lobby">
+      <div class="tcard">
+        <div class="top"><span class="badge badge-fire">🔥 On Fire</span><span class="seats">5 / 6</span></div>
+        <div class="body"><div class="gname">High Rollers</div><div class="stakes">Hold'em · 50 / 100</div>
+          <div class="foot"><div class="avatars"><span class="av"></span><span class="av"></span><span class="av"></span><span class="av"></span></div><span class="join">Sit down →</span></div></div>
+      </div>
+      <div class="tcard">
+        <div class="top"><span class="badge badge-cruise">😎 Cruising</span><span class="seats">3 / 6</span></div>
+        <div class="body"><div class="gname">Sunset Lounge</div><div class="stakes">Blackjack · 25 min</div>
+          <div class="foot"><div class="avatars"><span class="av"></span><span class="av"></span><span class="av"></span></div><span class="join">Sit down →</span></div></div>
+      </div>
+      <div class="tcard">
+        <div class="top"><span class="badge badge-cold">🧊 Cold</span><span class="seats">1 / 6</span></div>
+        <div class="body"><div class="gname">Late Night</div><div class="stakes">Hold'em · 10 / 20</div>
+          <div class="foot"><div class="avatars"><span class="av"></span></div><span class="join">Spectate →</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <b>Shuffle</b> — sunset lounge aesthetic · Bricolage Grotesque + Hanken Grotesk · play-money &amp; social only<br>
+    A design direction to react to — every color, type choice, and component here is yours to push on.
+  </footer>
+</div>
+</body>
+</html>

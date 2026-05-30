@@ -1,0 +1,22 @@
+{
+  "name": "shuffle",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shuffle — a browser multiplayer virtual casino. Play-money / social only.",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter=./apps/* dev",
+    "dev:web": "pnpm --filter @shuffle/web dev",
+    "dev:server": "pnpm --filter @shuffle/server dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r exec rm -rf dist .turbo node_modules/.cache"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.3"
+}
