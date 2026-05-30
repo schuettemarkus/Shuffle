@@ -35,6 +35,12 @@ import {
   type Outcome,
 } from '../blackjack/engine.js';
 import * as wallet from '../wallet.js';
+import {
+  publishStatus,
+  configBus,
+  getTableConfig,
+  type TableConfig,
+} from '../lobbyRegistry.js';
 import type { Card } from '@shuffle/shared';
 
 const MAX_SEATS = 6;
@@ -55,6 +61,8 @@ export class BlackjackRoom extends Room<BlackjackState> {
   private dealerHandHidden: Card[] = []; // raw cards including hidden hole
   private tick?: NodeJS.Timeout;
   private actingSeat = -1; // index of seat whose turn it is in 'playing'
+  private prevPhase = '';
+  private onConfigChange = (c: TableConfig) => this.applyConfig(c);
 
   override onCreate(_options?: unknown) {
     this.setState(new BlackjackState());
@@ -78,7 +86,85 @@ export class BlackjackRoom extends Room<BlackjackState> {
       this.broadcast(S2C.chipToss, { from: client.sessionId });
     });
 
+    // ---- WebRTC mesh signaling (Phase 1 substitute for LiveKit) ----
+    // The server is a dumb relay: it forwards offer/answer/ice between two
+    // named peers and broadcasts presence so clients know who to dial.
+    this.onMessage(
+      'webrtcSignal',
+      (client, msg: { to: string; kind: string; data: unknown }) => {
+        if (!msg?.to || !msg.kind) return;
+        const target = this.clients.find((c) => c.sessionId === msg.to);
+        if (!target) return;
+        target.send(S2C.webrtcSignal, {
+          from: client.sessionId,
+          kind: msg.kind,
+          data: msg.data,
+        });
+      },
+    );
+    this.onMessage('webrtcReady', (client) => {
+      // Tell everyone else this peer is ready to receive offers.
+      this.broadcast(
+        S2C.webrtcPeerReady,
+        { sessionId: client.sessionId },
+        { except: client },
+      );
+      // And tell the new client about everyone already present.
+      for (const c of this.clients) {
+        if (c.sessionId === client.sessionId) continue;
+        client.send(S2C.webrtcPeerReady, { sessionId: c.sessionId });
+      }
+    });
+
     this.tick = setInterval(() => this.onTick(), TICK_MS);
+    // Apply any host-set config that already exists, then subscribe.
+    const existing = getTableConfig(this.state.tableId);
+    if (existing) this.applyConfig(existing);
+    configBus.on('change', this.onConfigChange);
+    this.pushLobbyStatus();
+  }
+
+  private applyConfig(c: TableConfig) {
+    if (c.tableId !== this.state.tableId) return;
+    this.state.minBet = c.minBet;
+    this.state.maxBet = c.maxBet;
+    if (c.paused) {
+      if (this.state.phase !== 'paused') {
+        this.prevPhase = this.state.phase;
+        this.state.phase = 'paused';
+      }
+    } else if (this.state.phase === 'paused') {
+      this.state.phase = (this.prevPhase as typeof this.state.phase) || 'waiting';
+    }
+  }
+
+  private pushLobbyStatus() {
+    const seatsTaken = this.state.seats.filter((s) => s.phase !== 'empty').length;
+    const inHand =
+      this.state.phase === 'playing' ||
+      this.state.phase === 'dealing' ||
+      this.state.phase === 'dealer';
+    // Heat Index proxy until Phase 4 ships the real algorithm.
+    const occupancy = seatsTaken / MAX_SEATS;
+    const heat = Math.round(occupancy * 60 + (inHand ? 20 : 0));
+    const heatState =
+      seatsTaken === 0
+        ? 'graveyard'
+        : heat >= 75
+        ? 'on_fire'
+        : heat >= 55
+        ? 'buzzing'
+        : heat >= 35
+        ? 'cruising'
+        : 'cold';
+    publishStatus({
+      tableId: this.state.tableId,
+      seatsTaken,
+      maxSeats: MAX_SEATS,
+      inHand,
+      heat,
+      heatState,
+    });
   }
 
   override async onJoin(client: Client, options: JoinOptions) {
@@ -98,6 +184,12 @@ export class BlackjackRoom extends Room<BlackjackState> {
   }
 
   override async onLeave(client: Client, consented: boolean) {
+    // Tell every other client to tear down its peer connection with this one.
+    this.broadcast(
+      S2C.webrtcPeerGone,
+      { sessionId: client.sessionId },
+      { except: client },
+    );
     const seat = this.findSeatBySession(client.sessionId);
     if (!seat) return;
     seat.connected = false;
@@ -119,6 +211,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
 
   override onDispose() {
     if (this.tick) clearInterval(this.tick);
+    configBus.off('change', this.onConfigChange);
   }
 
   // ---------- action routing ----------
@@ -167,7 +260,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     seat.displayName = displayName;
     seat.stack = actualBuyIn;
     seat.bet = 0;
-    seat.hand = new ArraySchema<CardSchema>();
+    seat.hand.clear();
     seat.handValue = 0;
     seat.isSoft = false;
     seat.phase = 'waiting';
@@ -326,7 +419,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     seat.displayName = '';
     seat.stack = 0;
     seat.bet = 0;
-    seat.hand = new ArraySchema<CardSchema>();
+    seat.hand.clear();
     seat.handValue = 0;
     seat.isSoft = false;
     seat.phase = 'empty';
@@ -350,12 +443,12 @@ export class BlackjackRoom extends Room<BlackjackState> {
       if (s.phase === 'empty') continue;
       s.phase = 'betting';
       s.bet = 0;
-      s.hand = new ArraySchema<CardSchema>();
+      s.hand.clear();
       s.handValue = 0;
       s.isSoft = false;
       s.wantReady = false;
     }
-    this.state.dealer.hand = new ArraySchema<CardSchema>();
+    this.state.dealer.hand.clear();
     this.state.dealer.handValue = 0;
     this.state.dealer.isSoft = false;
     this.state.revealedSeed = '';
@@ -384,7 +477,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     for (let i = 0; i < live.length; i++) {
       const seat = live[i]!;
       const hand = result.hands[i]!;
-      seat.hand = new ArraySchema<CardSchema>();
+      seat.hand.clear();
       for (const c of hand) this.pushCard(seat.hand, c);
       const { total, soft } = handValue(hand);
       seat.handValue = total;
@@ -392,7 +485,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
       seat.phase = isBlackjack(hand) ? 'blackjack' : 'playing';
     }
     this.dealerHandHidden = result.dealer;
-    this.state.dealer.hand = new ArraySchema<CardSchema>();
+    this.state.dealer.hand.clear();
     for (const c of result.dealer) this.pushCard(this.state.dealer.hand, c);
     // Dealer's visible value reflects only the up card.
     const dv = handValue(result.dealer);
@@ -433,7 +526,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     // Reveal hole card.
     const revealed = revealHole(this.dealerHandHidden);
     this.dealerHandHidden = revealed;
-    this.state.dealer.hand = new ArraySchema<CardSchema>();
+    this.state.dealer.hand.clear();
     for (const c of revealed) this.pushCard(this.state.dealer.hand, c);
     const v = handValue(revealed);
     this.state.dealer.handValue = v.total;
@@ -572,6 +665,8 @@ export class BlackjackRoom extends Room<BlackjackState> {
       case 'paused':
         break;
     }
+
+    this.pushLobbyStatus();
   }
 
   private ensureShoe() {

@@ -20,8 +20,11 @@ export function getClient(): Client {
   return client;
 }
 
-export async function joinLobby() {
-  return getClient().joinOrCreate(ROOMS.lobby);
+export async function joinLobby(opts: {
+  identityId: string;
+  displayName: string;
+}) {
+  return getClient().joinOrCreate(ROOMS.lobby, opts);
 }
 
 export async function joinBlackjack(opts: {

@@ -10,6 +10,38 @@ import type {
   TablePhase,
 } from '@shuffle/shared';
 
+export interface FloorPlayer {
+  sessionId: string;
+  identityId: string;
+  displayName: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  facing: number;
+  host: boolean;
+  connected: boolean;
+  walkingTo: string;
+  hasTarget: boolean;
+}
+
+export interface FloorTable {
+  tableId: string;
+  name: string;
+  game: string;
+  x: number;
+  y: number;
+  minBet: number;
+  maxBet: number;
+  maxSeats: number;
+  seatsTaken: number;
+  inHand: boolean;
+  heat: number;
+  heatState: string;
+  stakesLocked: boolean;
+  paused: boolean;
+}
+
 export interface SeatView {
   index: number;
   playerId: string;
@@ -68,6 +100,8 @@ interface State {
   // Cam
   camStream: MediaStream | null;
   camError: string | null;
+  // Peer video — sessionId -> remote MediaStream from WebRTC mesh
+  peerStreams: Map<string, MediaStream>;
 
   setView: (v: State['view']) => void;
   setLobbyRoom: (r: Room | null) => void;
@@ -80,7 +114,9 @@ interface State {
   dismissToast: (id: number) => void;
   setLastResult: (r: HandResult | null) => void;
   pushReaction: (r: { from: string; emote: string }) => void;
+  dismissReaction: (id: number) => void;
   setCam: (s: MediaStream | null, err?: string | null) => void;
+  setPeerStreams: (m: Map<string, MediaStream>) => void;
 }
 
 export const useStore = create<State>((set) => ({
@@ -98,6 +134,7 @@ export const useStore = create<State>((set) => ({
   reactions: [],
   camStream: null,
   camError: null,
+  peerStreams: new Map(),
 
   setView: (v) => set({ view: v }),
   setLobbyRoom: (r) => set({ lobbyRoom: r }),
@@ -114,7 +151,10 @@ export const useStore = create<State>((set) => ({
     set((s) => ({
       reactions: [...s.reactions.slice(-9), { id: Date.now() + Math.random(), ...r }],
     })),
+  dismissReaction: (id) =>
+    set((s) => ({ reactions: s.reactions.filter((r) => r.id !== id) })),
   setCam: (s, err = null) => set({ camStream: s, camError: err }),
+  setPeerStreams: (m) => set({ peerStreams: new Map(m) }),
 }));
 
 // Derived selector — find my seat (if any).

@@ -8,6 +8,7 @@ import { PhaseBanner } from '../components/PhaseBanner';
 import { Webcam } from '../components/Webcam';
 import { sendAction, sendReaction, sendChipToss } from '../lib/intents';
 import { rumble, startGamepadLoop, type GamepadIntent } from '../lib/gamepad';
+import { startWebRTCMesh } from '../lib/webrtcMesh';
 
 export function Table() {
   const tableRoom = useStore((s) => s.tableRoom);
@@ -23,6 +24,9 @@ export function Table() {
   const reactions = useStore((s) => s.reactions);
   const betDraft = useStore((s) => s.betDraft);
   const setBetDraft = useStore((s) => s.setBetDraft);
+  const camStream = useStore((s) => s.camStream);
+  const peerStreams = useStore((s) => s.peerStreams);
+  const setPeerStreams = useStore((s) => s.setPeerStreams);
 
   // Subscribe to state from Colyseus and mirror into Zustand.
   useEffect(() => {
@@ -81,6 +85,24 @@ export function Table() {
   useEffect(() => {
     if (mySeat?.isTurn) rumble(220, 0.6);
   }, [mySeat?.isTurn]);
+
+  // WebRTC mesh — exchange video tracks across all clients in this room.
+  // Lifetime: lives as long as the table room is connected. Restarts if the
+  // local cam stream first appears after the mesh started so it can publish.
+  useEffect(() => {
+    if (!tableRoom || !mySessionId) return;
+    const mesh = startWebRTCMesh({
+      room: tableRoom,
+      mySessionId,
+      localStream: camStream,
+    });
+    const off = mesh.onChange(() => setPeerStreams(mesh.remoteStreams()));
+    return () => {
+      off();
+      mesh.stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableRoom, mySessionId, camStream]);
 
   // Wire the gamepad loop -> table actions.
   useEffect(() => {
@@ -173,14 +195,17 @@ export function Table() {
           ← Lobby
         </button>
         <PhaseBanner table={table} />
-        <div className="hidden text-right text-[11px] text-ink-mute sm:block">
-          play-money · social only
-        </div>
+        <div className="w-[68px] sm:w-auto" />
       </header>
 
       <FeltSurface table={table} mySeat={mySeat} />
 
-      <FilmStrip table={table} mySessionId={mySessionId} myDisplayName={myDisplayName} />
+      <FilmStrip
+        table={table}
+        mySessionId={mySessionId}
+        myDisplayName={myDisplayName}
+        peerStreams={peerStreams}
+      />
 
       <TableControls table={table} mySeat={mySeat} />
 
@@ -219,10 +244,12 @@ function FilmStrip({
   table,
   mySessionId,
   myDisplayName,
+  peerStreams,
 }: {
   table: TableView;
   mySessionId: string | null;
   myDisplayName: string;
+  peerStreams: Map<string, MediaStream>;
 }) {
   const seated = table.seats.filter((s) => s.phase !== 'empty');
   if (seated.length === 0) return null;
@@ -233,6 +260,7 @@ function FilmStrip({
           key={s.playerId}
           name={s.displayName}
           mine={s.playerId === mySessionId}
+          stream={s.playerId === mySessionId ? undefined : peerStreams.get(s.playerId)}
           size="sm"
         />
       ))}
@@ -246,16 +274,18 @@ function FilmStrip({
 function Fairness({ table }: { table: TableView }) {
   if (!table.commitHash) return null;
   return (
-    <div className="rounded-xl border border-border bg-bg-2/60 p-3 text-[10px] text-ink-mute">
-      <p>
-        <span className="text-ink-soft">Provably fair</span> · shuffle for round {table.round} was
-        committed before the hand and revealed after.
+    <details className="rounded-xl border border-border bg-bg-2/40 px-3 py-2 text-[10px] text-ink-mute">
+      <summary className="cursor-pointer select-none text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
+        Provably fair · round {table.round}
+      </summary>
+      <p className="mt-2">
+        Shuffle was committed before the hand and revealed after. Hash the seed to verify.
       </p>
       <p className="mt-1 font-mono break-all">commit: {table.commitHash.slice(0, 32)}…</p>
       {table.revealedSeed && (
         <p className="mt-1 font-mono break-all">seed: {table.revealedSeed.slice(0, 32)}…</p>
       )}
-    </div>
+    </details>
   );
 }
 
@@ -274,29 +304,39 @@ function ReactionsLayer({
 }: {
   reactions: Array<{ id: number; from: string; emote: string }>;
 }) {
-  const recent = reactions.slice(-3);
-  if (recent.length === 0) return null;
+  const dismissReaction = useStore((s) => s.dismissReaction);
+  useEffect(() => {
+    const timers = reactions.map((r) =>
+      setTimeout(() => dismissReaction(r.id), 1800),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [reactions, dismissReaction]);
+
+  if (reactions.length === 0) return null;
   return (
     <div className="pointer-events-none fixed left-1/2 top-1/2 z-30 -translate-x-1/2 -translate-y-1/2 text-5xl">
-      {recent.map((r) => (
+      {reactions.map((r) => (
         <span
           key={r.id}
-          className="mx-1 inline-block animate-rise"
+          className="mx-1 inline-block animate-reaction"
           style={{ filter: 'drop-shadow(0 4px 12px rgba(0,0,0,.5))' }}
         >
-          {r.emote === 'chip'
-            ? '🪙'
-            : r.emote === 'cheers'
-            ? '🥂'
-            : r.emote === 'facepalm'
-            ? '🤦'
-            : r.emote === 'clap'
-            ? '👏'
-            : '😏'}
+          {emoteGlyph(r.emote)}
         </span>
       ))}
     </div>
   );
+}
+
+function emoteGlyph(emote: string): string {
+  switch (emote) {
+    case 'chip': return '🪙';
+    case 'cheers': return '🥂';
+    case 'facepalm': return '🤦';
+    case 'clap': return '👏';
+    case 'taunt': return '😏';
+    default: return '✨';
+  }
 }
 
 // ---------- schema -> view transform ----------
@@ -343,38 +383,46 @@ function toCard(c: ServerSchemaCard): Card {
 }
 
 function toView(s: ServerSchema): TableView {
+  // Defensive: during Colyseus state patches, nested schemas can briefly be
+  // undefined on the client between encoder ticks. Tolerate it and re-render
+  // on the next change.
+  const dealer = s.dealer ?? { hand: [], handValue: 0, isSoft: false };
+  const dealerHand = dealer.hand ? Array.from(dealer.hand).map(toCard) : [];
+  const seats = s.seats
+    ? Array.from(s.seats).filter(Boolean).map((seat) => ({
+        index: seat.index,
+        playerId: seat.playerId ?? '',
+        identityId: seat.identityId ?? '',
+        displayName: seat.displayName ?? '',
+        stack: seat.stack ?? 0,
+        bet: seat.bet ?? 0,
+        hand: seat.hand ? Array.from(seat.hand).map(toCard) : [],
+        handValue: seat.handValue ?? 0,
+        isSoft: !!seat.isSoft,
+        phase: (seat.phase ?? 'empty') as SeatView['phase'],
+        isTurn: !!seat.isTurn,
+        turnClockMs: seat.turnClockMs ?? 0,
+        connected: seat.connected ?? true,
+        graceMs: seat.graceMs ?? 0,
+      }))
+    : [];
   return {
-    tableId: s.tableId,
-    name: s.name,
-    minBet: s.minBet,
-    maxBet: s.maxBet,
-    maxSeats: s.maxSeats,
-    phase: s.phase as TableView['phase'],
-    phaseClockMs: s.phaseClockMs,
-    commitHash: s.commitHash,
-    revealedSeed: s.revealedSeed,
-    hostId: s.hostId,
-    round: s.round,
+    tableId: s.tableId ?? '',
+    name: s.name ?? '',
+    minBet: s.minBet ?? 25,
+    maxBet: s.maxBet ?? 500,
+    maxSeats: s.maxSeats ?? 6,
+    phase: (s.phase ?? 'waiting') as TableView['phase'],
+    phaseClockMs: s.phaseClockMs ?? 0,
+    commitHash: s.commitHash ?? '',
+    revealedSeed: s.revealedSeed ?? '',
+    hostId: s.hostId ?? '',
+    round: s.round ?? 0,
     dealer: {
-      hand: Array.from(s.dealer.hand).map(toCard),
-      handValue: s.dealer.handValue,
-      isSoft: s.dealer.isSoft,
+      hand: dealerHand,
+      handValue: dealer.handValue ?? 0,
+      isSoft: !!dealer.isSoft,
     },
-    seats: Array.from(s.seats).map((seat) => ({
-      index: seat.index,
-      playerId: seat.playerId,
-      identityId: seat.identityId,
-      displayName: seat.displayName,
-      stack: seat.stack,
-      bet: seat.bet,
-      hand: Array.from(seat.hand).map(toCard),
-      handValue: seat.handValue,
-      isSoft: seat.isSoft,
-      phase: seat.phase as SeatView['phase'],
-      isTurn: seat.isTurn,
-      turnClockMs: seat.turnClockMs,
-      connected: seat.connected,
-      graceMs: seat.graceMs,
-    })),
+    seats,
   };
 }

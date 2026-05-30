@@ -54,11 +54,18 @@ export default {
           '0%,100%': { boxShadow: '0 0 0 0 rgba(255,106,61,.5)' },
           '50%': { boxShadow: '0 0 0 12px rgba(255,106,61,0)' },
         },
+        reaction: {
+          '0%': { opacity: '0', transform: 'translateY(24px) scale(.6)' },
+          '20%': { opacity: '1', transform: 'translateY(0) scale(1.15)' },
+          '60%': { opacity: '1', transform: 'translateY(-12px) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(-48px) scale(.9)' },
+        },
       },
       animation: {
         rise: 'rise .7s ease-out forwards',
         flick: 'flick 1.6s infinite',
         pulseSunset: 'pulseSunset 1.6s ease-in-out infinite',
+        reaction: 'reaction 1.8s ease-out forwards',
       },
     },
   },
