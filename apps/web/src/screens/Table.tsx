@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore, selectMySeat, type TableView, type SeatView } from '../lib/store';
 import type { Card, HandResult } from '@shuffle/shared';
 import { Seat } from '../components/Seat';
@@ -29,9 +29,15 @@ export function Table() {
   const betDraft = useStore((s) => s.betDraft);
   const setBetDraft = useStore((s) => s.setBetDraft);
   const camStream = useStore((s) => s.camStream);
+  const setCam = useStore((s) => s.setCam);
   const peerStreams = useStore((s) => s.peerStreams);
   const setPeerStreams = useStore((s) => s.setPeerStreams);
   const venue = useStore((s) => s.venue);
+
+  // Local mic / camera toggle state. Defaults: both on; the user can pause
+  // either from the local video tile.
+  const [micEnabled, setMicEnabled] = useState(true);
+  const [camEnabled, setCamEnabled] = useState(true);
 
   // Subscribe to state from Colyseus and mirror into Zustand.
   useEffect(() => {
@@ -91,24 +97,56 @@ export function Table() {
     if (mySeat?.isTurn) rumble(220, 0.6);
   }, [mySeat?.isTurn]);
 
-  // LiveKit: publish our camera while we're at this table, subscribe to
-  // remote video tracks, and refresh the peerStreams map keyed by identityId.
+  // Camera lifecycle (request -> publish -> unpublish -> stop) keyed off
+  // camEnabled. When the user toggles cam off the track stops, the LiveKit
+  // publication is removed, and other clients see the avatar fallback.
   useEffect(() => {
-    if (!venue || !camStream) return;
+    if (!camEnabled) {
+      // Stop any existing local stream and unpublish from LiveKit.
+      camStream?.getTracks().forEach((t) => t.stop());
+      setCam(null);
+      venue?.unpublishCamera().catch(() => {});
+      return;
+    }
+    if (camStream) {
+      // Already have a stream — make sure it's published.
+      if (venue) venue.publishCamera(camStream).catch(() => {});
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        await venue.publishCamera(camStream);
+        const s = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
+          audio: false,
+        });
+        if (cancelled) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        setCam(s);
+        if (venue) await venue.publishCamera(s);
       } catch (err) {
-        console.warn('[livekit] publish camera failed', err);
+        setCam(null, err instanceof Error ? err.message : 'camera blocked');
+        setCamEnabled(false);
       }
     })();
     return () => {
       cancelled = true;
-      venue.unpublishCamera().catch(() => {});
-      void cancelled;
     };
-  }, [venue, camStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camEnabled, venue]);
+
+  // Mic toggle — proxied to LiveKit; safe to call repeatedly.
+  useEffect(() => {
+    if (!venue) return;
+    venue.room.localParticipant
+      .setMicrophoneEnabled(micEnabled)
+      .catch((err) => console.info('[livekit] mic toggle failed', err));
+  }, [venue, micEnabled]);
+
+  const toggleMic = useCallback(() => setMicEnabled((v) => !v), []);
+  const toggleCam = useCallback(() => setCamEnabled((v) => !v), []);
 
   // Refresh peerStreams whenever a remote video track joins / leaves.
   useEffect(() => {
@@ -222,7 +260,7 @@ export function Table() {
   }
 
   return (
-    <div className="relative mx-auto flex max-w-6xl flex-col gap-4 px-3 pb-40 pt-4 sm:px-6 sm:pt-6">
+    <div className="relative mx-auto flex max-w-6xl flex-col gap-4 px-3 pb-40 pt-4 sm:px-6 sm:pt-6 sm:pr-[336px]">
       <header className="flex items-center justify-between">
         <button
           onClick={() => setView('lobby')}
@@ -241,6 +279,11 @@ export function Table() {
         mySessionId={mySessionId}
         myDisplayName={myDisplayName}
         peerStreams={peerStreams}
+        camStream={camStream}
+        micEnabled={micEnabled}
+        camEnabled={camEnabled}
+        onToggleMic={toggleMic}
+        onToggleCam={toggleCam}
       />
 
       <TableControls table={table} mySeat={mySeat} />
@@ -287,28 +330,53 @@ function FilmStrip({
   mySessionId,
   myDisplayName,
   peerStreams,
+  camStream,
+  micEnabled,
+  camEnabled,
+  onToggleMic,
+  onToggleCam,
 }: {
   table: TableView;
   mySessionId: string | null;
   myDisplayName: string;
   peerStreams: Map<string, MediaStream>;
+  camStream: MediaStream | null;
+  micEnabled: boolean;
+  camEnabled: boolean;
+  onToggleMic: () => void;
+  onToggleCam: () => void;
 }) {
   const seated = table.seats.filter((s) => s.phase !== 'empty');
-  if (seated.length === 0) return null;
+  // Always show the local tile so the camera/mic controls are reachable,
+  // even before you sit.
+  const localTile = (
+    <Webcam
+      key="me"
+      name={myDisplayName || 'You'}
+      mine
+      stream={camStream}
+      micEnabled={micEnabled}
+      camEnabled={camEnabled}
+      onToggleMic={onToggleMic}
+      onToggleCam={onToggleCam}
+      isHost={table.hostId === mySessionId}
+    />
+  );
+  const remoteTiles = seated
+    .filter((s) => s.playerId !== mySessionId)
+    .map((s) => (
+      <Webcam
+        key={s.playerId}
+        name={s.displayName}
+        stream={peerStreams.get(s.identityId) ?? null}
+        isHost={s.playerId === table.hostId}
+      />
+    ));
+
   return (
-    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-      {seated.map((s) => (
-        <Webcam
-          key={s.playerId}
-          name={s.displayName}
-          mine={s.playerId === mySessionId}
-          stream={s.playerId === mySessionId ? undefined : peerStreams.get(s.identityId)}
-          size="sm"
-        />
-      ))}
-      {!seated.some((s) => s.playerId === mySessionId) && (
-        <Webcam name={myDisplayName || 'You'} mine size="sm" />
-      )}
+    <div className="flex items-stretch gap-3 overflow-x-auto pb-2">
+      {localTile}
+      {remoteTiles}
     </div>
   );
 }

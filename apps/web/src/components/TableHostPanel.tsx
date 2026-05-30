@@ -23,7 +23,7 @@ export function TableHostPanel({ room, table, mySessionId }: Props) {
   if (paused !== (table.phase === 'paused')) setPaused(table.phase === 'paused');
 
   return (
-    <div className="fixed right-3 top-14 z-30 sm:right-6 sm:top-16">
+    <div className="fixed right-3 top-14 z-30 sm:right-[348px] sm:top-4">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 rounded-full border border-amber/50 bg-amber/15 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-amber backdrop-blur"
