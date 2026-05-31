@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Room } from 'colyseus.js';
 import { C2S } from '@shuffle/shared';
 import { useStore } from '../lib/store';
-import { joinLobby, joinBlackjack, joinCraps } from '../lib/colyseus';
+import { joinLobby, joinBlackjack, joinCraps, joinHoldem } from '../lib/colyseus';
 import { ShareInvitePanel } from '../components/ShareInvitePanel';
 
 interface LobbyTableRow {
@@ -31,6 +31,7 @@ export function Lobby() {
   const setLobbyRoom = useStore((s) => s.setLobbyRoom);
   const setTableRoom = useStore((s) => s.setTableRoom);
   const setCrapsRoom = useStore((s) => s.setCrapsRoom);
+  const setHoldemRoom = useStore((s) => s.setHoldemRoom);
   const setView = useStore((s) => s.setView);
   const pushToast = useStore((s) => s.pushToast);
   const currentLobbyId = useStore((s) => s.currentLobbyId);
@@ -76,12 +77,18 @@ export function Lobby() {
           };
           setTables(Array.from(t.tables.values()).map((r) => ({ ...r })));
           setPlayersOnline(t.playersOnline ?? 0);
-          if (t.name) setLobbyName(t.name);
+          setLobbyName(t.name ?? '');
           if (t.hostId !== undefined) setLobbyHostId(t.hostId);
         };
         room.onStateChange(sync);
         sync();
       } catch (err) {
+        if (cancelled) {
+          // Effect was torn down (often React-strict-mode double-mount).
+          // Silently swallow — the second mount's join will succeed.
+          console.warn(err);
+          return;
+        }
         pushToast({ kind: 'error', text: 'Could not reach the lobby.' });
         console.warn(err);
       }
@@ -102,6 +109,10 @@ export function Lobby() {
   const renameLobby = (name: string) => {
     const trimmed = name.trim().slice(0, 40);
     if (!trimmed) return;
+    // Optimistic update so the UI doesn't flash the old name between click
+    // and the server broadcast. The next state sync confirms (or, if the
+    // server rejects, corrects) the value.
+    setLobbyName(trimmed);
     lobbyRoomRef.current?.send(C2S.lobbySetName, { name: trimmed });
   };
 
@@ -117,6 +128,16 @@ export function Lobby() {
         });
         setCrapsRoom(r, r.sessionId);
         setView('craps');
+        return;
+      }
+      if (row.game === 'holdem') {
+        const r = await joinHoldem({
+          lobbyId: currentLobbyId,
+          identityId: myIdentityId,
+          displayName: myDisplayName || 'Guest',
+        });
+        setHoldemRoom(r, r.sessionId);
+        setView('holdem');
         return;
       }
       const r = await joinBlackjack({
@@ -157,9 +178,6 @@ export function Lobby() {
         <h2 className="font-display text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
           Pick a game
         </h2>
-        <p className="hidden text-right text-xs text-ink-mute sm:block">
-          play-money chips on the house · {tables.length} {tables.length === 1 ? 'game' : 'games'} ready
-        </p>
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
@@ -171,7 +189,6 @@ export function Lobby() {
             joining={joining === t.tableId}
           />
         ))}
-        <ComingSoonCard kind="holdem" />
       </div>
 
       <footer className="mt-12 text-center text-[10px] uppercase tracking-[0.32em] text-ink-mute/70">
@@ -221,23 +238,24 @@ function Hero({
           <h1 className="wordmark mt-2 text-[clamp(56px,10vw,108px)] leading-[.9]">
             shuffle<span className="wordmark-dot">.</span>
           </h1>
-          <LobbyNameBar name={lobbyName} isHost={isHost} onRename={onRename} onScroll={onScroll} />
+          <LobbyNameBar
+            name={lobbyName}
+            isHost={isHost}
+            onRename={onRename}
+            onScroll={onScroll}
+            playersOnline={playersOnline}
+          />
           <p className="mt-3 max-w-2xl text-lg text-ink-soft sm:text-xl">
-            It's <span className="text-amber">golden hour</span> somewhere — pull
-            up a chair, deal a hand, and stay a while with the people you
-            actually like.
+            It's <span className="text-amber">golden hour</span> somewhere — live
+            faces, talk smack, lose nothing but time.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <button
               onClick={onInvite}
               className="rounded-full bg-gradient-to-br from-sunset-bright to-sunset px-5 py-3 text-sm font-bold uppercase tracking-[0.18em] text-white shadow-sunset transition hover:-translate-y-0.5"
             >
-              Invite friends →
+              {lobbyName ? `Invite friends to ${lobbyName} →` : 'Invite friends →'}
             </button>
-            <span className="inline-flex items-center gap-2 rounded-full border border-border-hi bg-black/30 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-soft backdrop-blur">
-              <span className="h-1.5 w-1.5 rounded-full bg-win shadow-[0_0_8px_#3FBE93]" />
-              {playersOnline} in {lobbyName || 'this lobby'}
-            </span>
           </div>
         </div>
 
@@ -247,57 +265,80 @@ function Hero({
   );
 }
 
-// Lobby name + (host-only) rename affordance. Plain text for guests; tap to
-// rename for the host with a tiny inline input.
+// Lobby name + (host-only) rename affordance. The host is auto-prompted to
+// name the lobby the first time around (when it arrives unnamed); after that
+// it's plain text for guests, "✎ Rename" for the host.
 function LobbyNameBar({
   name,
   isHost,
   onRename,
   onScroll,
+  playersOnline,
 }: {
   name: string;
   isHost: boolean;
   onRename: (n: string) => void;
   onScroll: () => void;
+  playersOnline: number;
 }) {
-  const [editing, setEditing] = useState(false);
+  // Auto-open the input when the host is in an unnamed lobby. We track
+  // whether we've ever seen a name to avoid snapping back into editing mode
+  // after the host clears their own name mid-session.
+  const seenNameRef = useRef(!!name);
+  if (name) seenNameRef.current = true;
+  const needsName = isHost && !name && !seenNameRef.current;
+  const [editing, setEditing] = useState(needsName);
   const [draft, setDraft] = useState(name);
   useEffect(() => {
     if (!editing) setDraft(name);
   }, [name, editing]);
+  useEffect(() => {
+    if (needsName) setEditing(true);
+  }, [needsName]);
   if (editing) {
     return (
-      <div className="mt-1 flex items-center gap-2">
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+      <div className="mt-1">
+        {needsName && (
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.22em] text-amber">
+            Name your lobby
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && draft.trim()) {
+                onRename(draft);
+                setEditing(false);
+              }
+              if (e.key === 'Escape' && name) setEditing(false);
+            }}
+            maxLength={40}
+            placeholder="e.g. Skoville"
+            className="w-full max-w-sm rounded-xl border border-amber/45 bg-bg-2 px-3 py-1.5 font-display text-xl font-bold text-ink outline-none ring-amber/40 focus:ring-2 sm:text-2xl"
+          />
+          <button
+            disabled={!draft.trim()}
+            onClick={() => {
+              if (!draft.trim()) return;
               onRename(draft);
               setEditing(false);
-            }
-            if (e.key === 'Escape') setEditing(false);
-          }}
-          maxLength={40}
-          placeholder="Name this lobby"
-          className="w-full max-w-sm rounded-xl border border-amber/45 bg-bg-2 px-3 py-1.5 font-display text-xl font-bold text-ink outline-none ring-amber/40 focus:ring-2 sm:text-2xl"
-        />
-        <button
-          onClick={() => {
-            onRename(draft);
-            setEditing(false);
-          }}
-          className="rounded-lg bg-gradient-to-br from-sunset-bright to-sunset px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white shadow-sunset"
-        >
-          Save
-        </button>
-        <button
-          onClick={() => setEditing(false)}
-          className="rounded-lg border border-white/15 bg-black/30 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-soft"
-        >
-          Cancel
-        </button>
+            }}
+            className="rounded-lg bg-gradient-to-br from-sunset-bright to-sunset px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white shadow-sunset disabled:opacity-40"
+          >
+            Save
+          </button>
+          {name && (
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-lg border border-white/15 bg-black/30 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-soft"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -312,16 +353,24 @@ function LobbyNameBar({
       {isHost ? (
         <button
           onClick={() => setEditing(true)}
-          className="inline-flex items-center gap-1 rounded-full border border-amber/45 bg-amber/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber transition hover:bg-amber/20"
+          aria-label="Rename this lobby"
           title="Rename this lobby"
+          className="grid h-6 w-6 place-items-center rounded-full border border-amber/45 bg-amber/10 text-amber transition hover:bg-amber/20"
         >
-          ✎ Rename
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3" aria-hidden>
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+          </svg>
         </button>
       ) : (
         <span className="rounded-full border border-white/15 bg-black/25 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-mute">
           Lobby
         </span>
       )}
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-ink-mute">
+        <span className="h-1.5 w-1.5 rounded-full bg-win shadow-[0_0_8px_#3FBE93]" />
+        {playersOnline} {playersOnline === 1 ? 'player' : 'players'}
+      </span>
     </div>
   );
 }
@@ -421,27 +470,36 @@ function TableCard({
   joining: boolean;
 }) {
   const isCraps = t.game === 'craps';
-  // Game name lives in the artwork banner now — the tile body just carries
-  // the secondary signal (stakes + open / mid-hand state) and the CTA.
-  const isBlackjack = !isCraps;
+  const isHoldem = t.game === 'holdem';
+  const isBlackjack = !isCraps && !isHoldem;
   return (
     <button
       onClick={onJoin}
       disabled={joining}
       className="group relative flex flex-col overflow-hidden rounded-[24px] border border-white/8 bg-surface text-left shadow-brand transition hover:-translate-y-1 hover:border-sunset/40 hover:shadow-[0_30px_60px_-20px_rgba(255,106,61,.45)] disabled:opacity-60"
     >
-      {isCraps ? <CrapsHero /> : <BlackjackHero />}
+      {isCraps ? <CrapsHero /> : isHoldem ? <HoldemTileHero /> : <BlackjackHero />}
       <span className="absolute right-4 top-4 z-10 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-semibold text-ink backdrop-blur">
         {t.seatsTaken} / {t.maxSeats} seats
       </span>
 
       <div className="relative flex flex-col gap-3 p-5">
         <p className="text-xs text-ink-mute">
-          {t.minBet}–{t.maxBet} chips · {t.inHand ? 'mid-hand' : 'open'}
-          {isBlackjack && (
+          {isHoldem ? (
             <>
+              {t.minBet}/{t.maxBet} blinds · {t.inHand ? 'mid-hand' : 'open'}
               {' · '}
-              <span className="text-amber">single deck · counting allowed</span>
+              <span className="text-amber">no-limit</span>
+            </>
+          ) : (
+            <>
+              {t.minBet}–{t.maxBet} chips · {t.inHand ? 'mid-hand' : 'open'}
+              {isBlackjack && (
+                <>
+                  {' · '}
+                  <span className="text-amber">single deck · counting allowed</span>
+                </>
+              )}
             </>
           )}
         </p>
@@ -451,6 +509,59 @@ function TableCard({
         </div>
       </div>
     </button>
+  );
+}
+
+// Hold'em tile hero — same composition language as Blackjack/Craps. Two
+// hole cards + a chip behind, gold banner reading HOLD'EM, violet-ish glow.
+function HoldemTileHero() {
+  return (
+    <HeroFrame
+      ariaLabel="Texas Hold'em"
+      variant={{
+        bgGlow: 'sunset',
+        chipFill: '#7A4FA3',
+        chipRim: '#2C1A4A',
+        decoration: 'spade',
+        title: "HOLD'EM",
+        foreground: (
+          <g filter="url(#cardDrop)">
+            <g transform="translate(190 32) rotate(-12)">
+              <rect width="74" height="102" rx="9" fill="#FFFFFF" stroke="#2C2552" strokeWidth="1.5" />
+              <rect x="3" y="3" width="68" height="96" rx="6" fill="none" stroke="rgba(0,0,0,.06)" />
+              <text x="9" y="26" fontFamily="Bricolage Grotesque" fontWeight="900" fontSize="22" fill="#E0556B">
+                A
+              </text>
+              <text x="9" y="46" fontFamily="Bricolage Grotesque" fontSize="22" fill="#E0556B">
+                ♥
+              </text>
+              <text x="37" y="64" fontFamily="Bricolage Grotesque" fontWeight="900" fontSize="38" textAnchor="middle" fill="#E0556B">
+                ♥
+              </text>
+              <text x="65" y="96" fontFamily="Bricolage Grotesque" fontWeight="900" fontSize="22" fill="#E0556B" textAnchor="end" transform="rotate(180 65 88)">
+                A
+              </text>
+            </g>
+            <g transform="translate(244 24) rotate(12)">
+              <rect width="74" height="102" rx="9" fill="#FFFFFF" stroke="#2C2552" strokeWidth="1.5" />
+              <rect x="3" y="3" width="68" height="96" rx="6" fill="none" stroke="rgba(0,0,0,.06)" />
+              <text x="9" y="26" fontFamily="Bricolage Grotesque" fontWeight="900" fontSize="22" fill="#14101A">
+                K
+              </text>
+              <text x="9" y="46" fontFamily="Bricolage Grotesque" fontSize="22" fill="#14101A">
+                ♣
+              </text>
+              <text x="37" y="64" fontFamily="Bricolage Grotesque" fontWeight="900" fontSize="38" textAnchor="middle" fill="#14101A">
+                ♣
+              </text>
+              <text x="65" y="96" fontFamily="Bricolage Grotesque" fontWeight="900" fontSize="22" fill="#14101A" textAnchor="end" transform="rotate(180 65 88)">
+                K
+              </text>
+            </g>
+          </g>
+        ),
+      }}
+    />
   );
 }
 
@@ -522,10 +633,13 @@ function HeroFrame({ ariaLabel, variant }: { ariaLabel: string; variant: HeroVar
             <stop offset="100%" stopColor="#3A2410" />
           </linearGradient>
           <linearGradient id="bannerText" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#FFF8DC" />
-            <stop offset="42%" stopColor="#FFD37A" />
-            <stop offset="78%" stopColor="#8C5919" />
-            <stop offset="100%" stopColor="#3A2410" />
+            <stop offset="0%" stopColor="#1A0F08" />
+            <stop offset="50%" stopColor="#14101A" />
+            <stop offset="100%" stopColor="#0A0610" />
+          </linearGradient>
+          <linearGradient id="bannerTextHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="rgba(255,248,220,.9)" />
+            <stop offset="40%" stopColor="rgba(255,211,122,0)" />
           </linearGradient>
 
           {/* Chip face inner ring + center wash */}
@@ -604,63 +718,87 @@ function HeroFrame({ ariaLabel, variant }: { ariaLabel: string; variant: HeroVar
           <Sparkle key={i} x={x} y={y} r={r} />
         ))}
 
-        {/* Gold banner with the title */}
+        {/* Gold banner with the title — taller + bigger letters for legibility */}
         <g filter="url(#softDrop)">
-          <path d="M 6 134 L 60 114 L 76 140 L 22 160 Z" fill="url(#bannerFold)" />
-          <path d="M 474 134 L 420 114 L 404 140 L 458 160 Z" fill="url(#bannerFold)" />
+          <path d="M 4 138 L 60 112 L 80 148 L 24 174 Z" fill="url(#bannerFold)" />
+          <path d="M 476 138 L 420 112 L 400 148 L 456 174 Z" fill="url(#bannerFold)" />
           <path
-            d="M 30 118 Q 240 92 450 118 L 450 158 Q 240 132 30 158 Z"
+            d="M 30 116 Q 240 86 450 116 L 450 172 Q 240 142 30 172 Z"
             fill="url(#bannerGold)"
             stroke="#3a2412"
             strokeWidth="2"
           />
           {/* Inner highlight stripes */}
           <path
-            d="M 50 124 Q 240 102 430 124"
+            d="M 50 124 Q 240 100 430 124"
             stroke="#FFF8DC"
-            strokeWidth="1.2"
+            strokeWidth="1.4"
             fill="none"
-            opacity="0.85"
+            opacity="0.9"
           />
           <path
-            d="M 50 154 Q 240 132 430 154"
+            d="M 50 166 Q 240 142 430 166"
             stroke="#3A2410"
-            strokeWidth="0.8"
+            strokeWidth="0.9"
             fill="none"
             opacity="0.55"
           />
-          {/* Embossed title text — two passes: dark "shadow" behind a gold
-              fill so the letters look raised. */}
-          <text
-            x="241"
-            y="153"
-            fontFamily="Bricolage Grotesque, sans-serif"
-            fontWeight="900"
-            fontSize="34"
-            textAnchor="middle"
-            fill="#2C1A08"
-            opacity="0.55"
-            letterSpacing="2"
-          >
-            {variant.title}
-          </text>
-          <text
-            x="240"
-            y="151"
-            fontFamily="Bricolage Grotesque, sans-serif"
-            fontWeight="900"
-            fontSize="34"
-            textAnchor="middle"
-            fill="url(#bannerText)"
-            stroke="#3a2412"
-            strokeWidth="0.8"
-            letterSpacing="2"
-          >
-            {variant.title}
-          </text>
+          {/* Title text — dark fill on gold for max legibility, with a soft
+              highlight pass so the letters still feel embossed. BLACKJACK
+              gets slightly smaller letters so the long word still fits. */}
+          {(() => {
+            const longTitle = variant.title.length >= 8;
+            const size = longTitle ? 44 : 52;
+            const letterSpacing = longTitle ? 2 : 4;
+            return (
+              <>
+                <text
+                  x="241"
+                  y="160"
+                  fontFamily="Bricolage Grotesque, sans-serif"
+                  fontWeight="900"
+                  fontSize={size}
+                  textAnchor="middle"
+                  fill="#FFE4B0"
+                  opacity="0.35"
+                  letterSpacing={letterSpacing}
+                >
+                  {variant.title}
+                </text>
+                <text
+                  x="240"
+                  y="158"
+                  fontFamily="Bricolage Grotesque, sans-serif"
+                  fontWeight="900"
+                  fontSize={size}
+                  textAnchor="middle"
+                  fill="url(#bannerText)"
+                  stroke="#000000"
+                  strokeWidth="0.6"
+                  letterSpacing={letterSpacing}
+                >
+                  {variant.title}
+                </text>
+                {/* top-edge highlight */}
+                <text
+                  x="240"
+                  y="158"
+                  fontFamily="Bricolage Grotesque, sans-serif"
+                  fontWeight="900"
+                  fontSize={size}
+                  textAnchor="middle"
+                  fill="url(#bannerTextHighlight)"
+                  letterSpacing={letterSpacing}
+                  style={{ mixBlendMode: 'screen' }}
+                >
+                  {variant.title}
+                </text>
+              </>
+            );
+          })()}
           {/* Decorative spade in the middle (Blackjack only) */}
           {variant.decoration === 'spade' && (
-            <g transform="translate(240 152)">
+            <g transform="translate(240 178)">
               <circle r="9" fill="#E0556B" stroke="#3a2412" strokeWidth="1" />
               <text
                 x="0"

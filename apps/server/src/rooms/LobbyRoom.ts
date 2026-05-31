@@ -7,8 +7,10 @@
 
 import { Room, Client } from '@colyseus/core';
 import { Schema, type, MapSchema } from '@colyseus/schema';
-import { ROOMS, C2S } from '@shuffle/shared';
+import { ROOMS, C2S, S2C, type ChatMessage } from '@shuffle/shared';
+import { nanoid } from 'nanoid';
 import { lobbyBus, allStatuses, type TableStatus } from '../lobbyRegistry.js';
+import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
 
 class LobbyTableSchema extends Schema {
   @type('string') tableId = '';
@@ -25,7 +27,7 @@ class LobbyTableSchema extends Schema {
 
 class LobbyState extends Schema {
   @type('string') lobbyId = '';
-  @type('string') name = 'Shuffle';
+  @type('string') name = '';
   @type('string') hostId = '';
   @type({ map: LobbyTableSchema }) tables = new MapSchema<LobbyTableSchema>();
   @type('number') playersOnline = 0;
@@ -40,35 +42,34 @@ interface LobbyJoinOptions {
 
 export class LobbyRoom extends Room<LobbyState> {
   private onRegistryChange = (s: TableStatus) => this.applyStatus(s);
+  private lobbyId = 'default';
+  private onChat = (e: ChatEvent) => {
+    if (e.lobbyId !== this.lobbyId) return;
+    this.broadcast(S2C.chat, e.msg);
+  };
 
   override onCreate(options: LobbyJoinOptions = {}) {
     this.setState(new LobbyState());
     const lobbyId = options.lobbyId || `lobby-${Date.now().toString(36)}`;
+    this.lobbyId = lobbyId;
     this.state.lobbyId = lobbyId;
     if (options.lobbyName) {
       this.state.name = String(options.lobbyName).slice(0, 40);
-    } else if (options.displayName) {
-      // Default the lobby name to the creating user's first name so the hero
-      // copy reads personally ("3 in Maya's table") before the host renames
-      // it (e.g. "3 in Skoville"). Strip trailing punctuation on the first
-      // word so "Maya," / "Maya!" both produce "Maya".
-      const first = String(options.displayName)
-        .trim()
-        .split(/\s+/)[0]
-        ?.replace(/[^\p{L}\p{N}]+$/u, '');
-      if (first) this.state.name = `${first}'s table`.slice(0, 40);
     }
+    // Otherwise leave the lobby unnamed — the first user in (the host) is
+    // prompted to name it before they see the rest of the floor.
 
     // Seed the standard pair of tables for this lobby. The tableIds are
     // namespaced by lobbyId so two lobbies never collide in the registry.
-    const seeds: Array<{ game: 'blackjack' | 'craps'; minBet: number; maxBet: number; maxSeats: number }> = [
-      { game: 'blackjack', minBet: 25, maxBet: 500, maxSeats: 6 },
-      { game: 'craps', minBet: 5, maxBet: 500, maxSeats: 8 },
+    const seeds: Array<{ game: 'blackjack' | 'craps' | 'holdem'; minBet: number; maxBet: number; maxSeats: number; name: string }> = [
+      { game: 'blackjack', minBet: 25, maxBet: 500, maxSeats: 6, name: 'Blackjack' },
+      { game: 'craps', minBet: 5, maxBet: 500, maxSeats: 8, name: 'Craps' },
+      { game: 'holdem', minBet: 5, maxBet: 10, maxSeats: 6, name: "Hold'em" },
     ];
     for (const s of seeds) {
       const row = new LobbyTableSchema();
       row.tableId = `${lobbyId}:${s.game}`;
-      row.name = s.game === 'craps' ? 'Craps' : 'Blackjack';
+      row.name = s.name;
       row.game = s.game;
       row.minBet = s.minBet;
       row.maxBet = s.maxBet;
@@ -88,15 +89,39 @@ export class LobbyRoom extends Room<LobbyState> {
       if (!cleaned) return;
       this.state.name = cleaned;
     });
+
+    // Shared chat — the same stream the game rooms publish to. Joining the
+    // lobby keeps you in the conversation with friends already at a table.
+    this.onMessage(C2S.chat, (client, payload: { text?: string }) => {
+      const text = (payload?.text ?? '').toString().trim().slice(0, 280);
+      if (!text) return;
+      const opts = (client.userData ?? {}) as LobbyJoinOptions;
+      const name = (opts.displayName || 'Guest').slice(0, 24);
+      const msg: ChatMessage = {
+        id: nanoid(8),
+        from: client.sessionId,
+        name,
+        text,
+        ts: Date.now(),
+      };
+      postChat(this.lobbyId, msg);
+    });
+    chatBus.on('message', this.onChat);
   }
 
   override onDispose() {
     lobbyBus.off('change', this.onRegistryChange);
+    chatBus.off('message', this.onChat);
   }
 
-  override onJoin(client: Client, _opts?: LobbyJoinOptions) {
+  override onJoin(client: Client, opts: LobbyJoinOptions = {}) {
+    client.userData = {
+      identityId: opts.identityId ?? client.sessionId,
+      displayName: opts.displayName ?? 'Guest',
+    };
     if (!this.state.hostId) this.state.hostId = client.sessionId;
     this.state.playersOnline = this.clients.length;
+    for (const msg of getChatHistory(this.lobbyId)) client.send(S2C.chat, msg);
   }
 
   override onLeave(client: Client) {

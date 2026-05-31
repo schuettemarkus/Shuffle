@@ -1,6 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useStore, type SeatView } from '../lib/store';
-import type { SeatVibe } from '@shuffle/shared';
 import { PlayingCard, HandValueBadge } from './PlayingCard';
 
 interface Props {
@@ -76,7 +75,11 @@ export function Seat({
       data-chip-anchor={`seat-${seat.index}`}
       style={speakingStyle}
       className={
-        'group relative flex flex-col gap-2 overflow-visible rounded-2xl border bg-gradient-to-b from-surface to-bg-2 p-2 transition sm:p-2.5 ' +
+        // Compact tile — video keeps its full column width (so it stays the
+        // same on-screen size) while a tight min-height locks empty + filled
+        // tiles at matching heights so the felt doesn't jump when someone
+        // buys in.
+        'group relative flex min-h-[220px] flex-col gap-1.5 overflow-visible rounded-2xl border bg-gradient-to-b from-surface to-bg-2 p-2 transition sm:min-h-[240px] sm:p-2.5 ' +
         (seat.isTurn
           ? 'border-sunset/70 shadow-sunset animate-pulseSunset'
           : isSpeaking
@@ -97,7 +100,7 @@ export function Seat({
       {empty ? (
         viewerSeated ? (
           // Viewer is already seated elsewhere — quiet placeholder, no CTA.
-          <div className="flex h-full min-h-[180px] w-full flex-col items-center justify-center gap-1 rounded-xl px-3 py-6 text-xs font-bold text-ink-mute">
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-xl px-3 py-4 text-xs font-bold text-ink-mute">
             <span className="text-[11px] uppercase tracking-[0.18em] text-ink-mute/80">
               Seat {seat.index + 1}
             </span>
@@ -106,7 +109,7 @@ export function Seat({
         ) : (
           <button
             onClick={onSit}
-            className="flex h-full min-h-[180px] w-full flex-col items-center justify-center gap-1 rounded-xl px-3 py-6 text-xs font-bold text-ink-soft transition hover:text-sunset"
+            className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-xl px-3 py-4 text-xs font-bold text-ink-soft transition hover:text-sunset"
           >
             <span className="text-[11px] uppercase tracking-[0.18em] text-ink-mute">
               Seat {seat.index + 1}
@@ -124,7 +127,6 @@ export function Seat({
             mine={isMine}
             showVideo={showVideo}
             connected={seat.connected}
-            vibe={seat.vibe}
             seat={seat}
             micEnabled={micEnabled}
             camEnabled={camEnabled}
@@ -139,7 +141,10 @@ export function Seat({
 
           <RoyalMatchBadge seat={seat} />
 
-          <SeatHands seat={seat} />
+          {/* Hide the inline mini-hand for the local player — their cards
+           *  render BIG on the felt below the dealer. Everyone else's tile
+           *  still shows their hand so we can read the table at a glance. */}
+          {!isMine && <SeatHands seat={seat} />}
 
           {isMine && onLeave && (
             <button
@@ -157,15 +162,14 @@ export function Seat({
 
 // The hero video element — fills the tile width and a generous height. We
 // use object-fit: cover with a gentle face-zoom so portraits read tight even
-// with loose webcam framing. Mic/cam toggles float in the top-right; vibe +
-// name read across the bottom gradient.
+// with loose webcam framing. Mic/cam toggles float in the top-right; just the
+// player's name reads across the bottom gradient.
 function SeatVideo({
   name,
   stream,
   mine,
   showVideo,
   connected,
-  vibe,
   seat,
   micEnabled,
   camEnabled,
@@ -177,7 +181,6 @@ function SeatVideo({
   mine: boolean;
   showVideo: boolean;
   connected: boolean;
-  vibe: SeatVibe;
   seat: SeatView;
   micEnabled?: boolean;
   camEnabled?: boolean;
@@ -188,11 +191,10 @@ function SeatVideo({
   useEffect(() => {
     if (ref.current) ref.current.srcObject = stream;
   }, [stream]);
-  const tone = vibeTone(vibe.tint);
   return (
     <div
       className={
-        'relative aspect-[3/4] w-full overflow-hidden rounded-xl border shadow-[0_14px_30px_-12px_rgba(0,0,0,.75)] ' +
+        'relative aspect-square w-full overflow-hidden rounded-xl border shadow-[0_14px_30px_-12px_rgba(0,0,0,.75)] ' +
         (mine ? 'border-amber/55' : 'border-white/10') +
         ' ' +
         (showVideo ? 'bg-black' : 'bg-gradient-to-br from-[#FF9D52] via-[#FF5C7A] to-[#7A4FA3]')
@@ -218,38 +220,15 @@ function SeatVideo({
         </div>
       )}
 
-      {/* Glass gradient at the bottom carries name + vibe pill. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-2 pb-2 pt-6 sm:px-2.5">
-        <div className="flex items-end justify-between gap-2">
-          <p className="truncate font-display text-sm font-bold leading-tight text-white sm:text-base">
-            {name || `Seat ${seat.index + 1}`}
-          </p>
-          {!connected && (
-            <span className="rounded-full bg-fold/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-fold">
-              AFK
-            </span>
-          )}
-        </div>
-        {vibe.label && (
-          <div
-            className={
-              'pointer-events-auto inline-flex max-w-full items-center gap-1 self-start rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] leading-none ' +
-              tone.border +
-              ' ' +
-              tone.bg +
-              ' ' +
-              tone.text
-            }
-            title={`Vibe: ${vibe.label}`}
-          >
-            <span className="text-sm leading-none">{vibe.icon}</span>
-            <span className="truncate">{vibe.label}</span>
-            {Math.abs(vibe.streak) >= 2 && (
-              <span className="rounded bg-black/50 px-1 py-0.5 text-[8px]">
-                {vibe.streak > 0 ? `W${vibe.streak}` : `L${Math.abs(vibe.streak)}`}
-              </span>
-            )}
-          </div>
+      {/* Glass gradient at the bottom carries just the player name. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/85 via-black/45 to-transparent px-2 pb-2 pt-6 sm:px-2.5">
+        <p className="truncate font-display text-sm font-bold leading-tight text-white sm:text-base">
+          {name || `Seat ${seat.index + 1}`}
+        </p>
+        {!connected && (
+          <span className="rounded-full bg-fold/30 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-fold">
+            AFK
+          </span>
         )}
       </div>
 
@@ -302,7 +281,6 @@ function SeatStatStrip({ seat }: { seat: SeatView }) {
   const heroTone =
     seat.netProfit > 0 ? 'text-win' : seat.netProfit < 0 ? 'text-fold' : 'text-ink';
   const chipColor = chipColorForStack(seat.stack);
-  const phaseInline = phaseInlineFor(seat);
   const wager = seat.bet + seat.splitBet;
   return (
     <div className="flex flex-col gap-1.5 rounded-xl border border-white/10 bg-black/35 px-2.5 py-2 backdrop-blur">
@@ -316,15 +294,11 @@ function SeatStatStrip({ seat }: { seat: SeatView }) {
             chips
           </span>
         </div>
-        {phaseInline ? (
-          <span className={'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ' + phaseInline.tone}>
-            {phaseInline.label}
-          </span>
-        ) : wager > 0 ? (
+        {wager > 0 && (
           <span className="rounded-full bg-amber/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber">
             Bet {wager}
           </span>
-        ) : null}
+        )}
       </div>
       {seat.handsPlayed > 0 && <PublicStats seat={seat} />}
     </div>
@@ -368,31 +342,6 @@ function PublicStats({ seat }: { seat: SeatView }) {
       )}
     </div>
   );
-}
-
-// Decide which inline phase pill (if any) to show next to the chip count.
-// Returns null when the regular bet badge (or nothing) is more appropriate.
-function phaseInlineFor(seat: SeatView): { label: string; tone: string } | null {
-  switch (seat.phase) {
-    case 'playing':
-      return { label: 'Acting', tone: 'bg-sunset/20 text-sunset' };
-    case 'standing':
-      return { label: 'Stand', tone: 'bg-ink-mute/15 text-ink-soft' };
-    case 'busted':
-      return { label: 'Bust', tone: 'bg-fold/20 text-fold' };
-    case 'blackjack':
-      return { label: 'Blackjack!', tone: 'bg-win/20 text-win' };
-    case 'surrendered':
-      return { label: 'Surrender', tone: 'bg-fold/20 text-fold' };
-    case 'betting':
-      return seat.bet > 0
-        ? { label: `Bet ${seat.bet}`, tone: 'bg-amber/20 text-amber' }
-        : { label: 'Placing bet…', tone: 'bg-amber/15 text-amber/85' };
-    case 'waiting':
-      return { label: 'Waiting', tone: 'bg-ink-mute/10 text-ink-mute' };
-    default:
-      return null;
-  }
 }
 
 // Poker-chip icon. SVG so it scales crisply and matches the brand palette.
@@ -545,7 +494,8 @@ function SeatHandColumn({
 }
 
 // Tiny phase indicator used inside the split-hand columns where space is
-// tight. Mirrors `phaseInlineFor` semantically but stays inline-compact.
+// tight (kept here even though the main tile's phase pill is gone — split
+// hands still need a per-hand signal so the user can tell hand 1 from hand 2).
 function SplitPhasePill({ phase }: { phase: SeatView['phase'] }) {
   const label =
     phase === 'playing'
@@ -571,54 +521,6 @@ function SplitPhasePill({ phase }: { phase: SeatView['phase'] }) {
       {label}
     </span>
   );
-}
-
-function vibeTone(tint: SeatVibe['tint']) {
-  switch (tint) {
-    case 'sunset':
-      return {
-        border: 'border-sunset/55',
-        bg: 'bg-gradient-to-r from-sunset/35 to-rose/25',
-        text: 'text-sunset',
-      };
-    case 'amber':
-      return {
-        border: 'border-amber/55',
-        bg: 'bg-gradient-to-r from-amber/35 to-sunset/25',
-        text: 'text-amber',
-      };
-    case 'teal':
-      return {
-        border: 'border-felt/65',
-        bg: 'bg-gradient-to-r from-felt/45 to-felt-deep/30',
-        text: 'text-[#7AE0CC]',
-      };
-    case 'ice':
-      return {
-        border: 'border-[#69BBE0]/55',
-        bg: 'bg-gradient-to-r from-[#69BBE0]/30 to-indigo/25',
-        text: 'text-[#9DD3EE]',
-      };
-    case 'rose':
-      return {
-        border: 'border-fold/55',
-        bg: 'bg-gradient-to-r from-fold/35 to-dusk-violet/25',
-        text: 'text-[#FF9DAC]',
-      };
-    case 'violet':
-      return {
-        border: 'border-dusk-violet/65',
-        bg: 'bg-gradient-to-r from-dusk-violet/35 to-indigo/30',
-        text: 'text-[#C9B0E7]',
-      };
-    case 'mute':
-    default:
-      return {
-        border: 'border-white/15',
-        bg: 'bg-black/45',
-        text: 'text-ink-soft',
-      };
-  }
 }
 
 function DealerButton() {
@@ -700,8 +602,14 @@ function RoyalMatchBadge({ seat }: { seat: SeatView }) {
 // Reactions overlay anchored to a seat — emojis fly above the player who
 // emitted them instead of floating in the middle of the screen.
 function SeatReactions({ playerId }: { playerId: string }) {
-  const reactions = useStore((s) =>
-    playerId ? s.reactions.filter((r) => r.from === playerId) : [],
+  // Select the stable array reference and filter in a memo — otherwise the
+  // selector returns a new `.filter()` array on every store tick and zustand's
+  // useSyncExternalStore snapshot is never cached, triggering an infinite
+  // re-render loop.
+  const allReactions = useStore((s) => s.reactions);
+  const reactions = useMemo(
+    () => (playerId ? allReactions.filter((r) => r.from === playerId) : []),
+    [allReactions, playerId],
   );
   if (reactions.length === 0) return null;
   return (

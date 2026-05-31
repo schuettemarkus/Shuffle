@@ -11,6 +11,7 @@ import { monitor } from '@colyseus/monitor';
 import { LobbyRoom } from './rooms/LobbyRoom.js';
 import { BlackjackRoom } from './rooms/BlackjackRoom.js';
 import { CrapsRoom } from './rooms/CrapsRoom.js';
+import { HoldemRoom } from './rooms/HoldemRoom.js';
 import { ROOMS } from '@shuffle/shared';
 import { getLiveKitConfig, mintToken, VENUE_ROOM } from './livekit.js';
 
@@ -63,6 +64,7 @@ const gameServer = new Server({
 gameServer.define(ROOMS.lobby, LobbyRoom).filterBy(['lobbyId']);
 gameServer.define(ROOMS.blackjack, BlackjackRoom).filterBy(['lobbyId']);
 gameServer.define(ROOMS.craps, CrapsRoom).filterBy(['lobbyId']);
+gameServer.define(ROOMS.holdem, HoldemRoom).filterBy(['lobbyId']);
 
 await gameServer.listen(PORT);
 

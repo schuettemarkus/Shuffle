@@ -25,17 +25,22 @@ export function Home() {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 text-center">
-      <p className="mb-4 text-xs font-semibold uppercase tracking-[0.34em] text-sunset opacity-90 animate-rise">
-        {inviteTable ? 'Someone saved you a chair' : 'Brand & design direction'}
-      </p>
+      {inviteTable && (
+        <p className="mb-4 text-xs font-semibold uppercase tracking-[0.34em] text-sunset opacity-90 animate-rise">
+          Someone saved you a chair
+        </p>
+      )}
       <h1 className="wordmark text-[clamp(72px,16vw,160px)] leading-[.9] animate-rise">
         shuffle<span className="wordmark-dot">.</span>
       </h1>
-      <p className="mt-4 max-w-md text-base text-ink-soft sm:text-lg animate-rise">
-        {inviteTable
-          ? `You've been invited to a Blackjack table. Tell us your name and we'll walk you over.`
-          : `A warm corner of the internet where friends pull up a chair, deal a hand, and hang out — face to face.`}
+      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.34em] text-sunset opacity-90 animate-rise">
+        Virtual casino
       </p>
+      {inviteTable && (
+        <p className="mt-4 max-w-md text-base text-ink-soft sm:text-lg animate-rise">
+          You've been invited to a Blackjack table. Tell us your name and we'll walk you over.
+        </p>
+      )}
 
       <div className="mt-10 w-full rounded-brand border border-border bg-surface p-5 shadow-brand animate-rise">
         <label className="block text-left text-xs font-semibold uppercase tracking-[0.18em] text-ink-mute">
@@ -59,9 +64,6 @@ export function Home() {
         >
           {inviteTable ? 'Take my seat →' : 'Pull up a chair →'}
         </button>
-        <p className="mt-3 text-xs text-ink-mute">
-          Play-money & social only. Shuffle never deals in real money.
-        </p>
       </div>
     </div>
   );

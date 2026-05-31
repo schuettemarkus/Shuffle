@@ -78,8 +78,12 @@ export function ChatPanel({ room, mySessionId }: Props) {
   // className with both mobile *and* desktop position utilities causes the
   // mobile `left-3` to stick on desktop (Tailwind has no `sm:left-auto` in
   // the mobile block), which is what was overlaying the felt on the left.
+  // On desktop we anchor the chat so its top + bottom match the table area —
+  // header is ~56px tall (button + padding) and the table container reserves
+  // 128px of bottom padding, so this lines the chat up with the felt instead
+  // of running floor-to-ceiling.
   const chrome = isDesktop
-    ? 'right-4 top-20 bottom-4 w-80 rounded-2xl bg-surface/35 shadow-[0_18px_50px_-20px_rgba(0,0,0,.6)] hover:bg-surface/55 focus-within:bg-surface/70 transition-colors'
+    ? 'right-4 top-[72px] bottom-[140px] w-80 rounded-2xl bg-surface/35 shadow-[0_18px_50px_-20px_rgba(0,0,0,.6)] hover:bg-surface/55 focus-within:bg-surface/70 transition-colors'
     : 'right-3 left-3 bottom-3 max-h-[70vh] rounded-2xl shadow-brand bg-surface/95';
   return (
     <aside

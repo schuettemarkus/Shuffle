@@ -8,7 +8,7 @@
 import type { Room } from 'colyseus.js';
 import type { SeatView, TableView } from '../lib/store';
 import { useStore } from '../lib/store';
-import { sendAction, sendReaction, sendChipToss } from '../lib/intents';
+import { sendAction } from '../lib/intents';
 
 interface Props {
   table: TableView;
@@ -90,6 +90,31 @@ export function FeltActionPanel({ table, mySeat, room: roomProp }: Props) {
   if (table.phase === 'betting') {
     const stack = mySeat.stack + mySeat.bet;
     const min = table.minBet;
+    // Out of chips — show a single hero "Buy 1000 chips" button instead of the
+    // bet slider. Top-ups are unlimited, free play-money.
+    if (stack < min) {
+      return (
+        <FeltPanel tone="invite">
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-amber">
+              You're out of chips
+            </p>
+            <p className="font-display text-2xl font-bold leading-tight text-white">
+              Buy back in?
+            </p>
+            <button
+              onClick={() => sendAction(room, { type: 'topUp', amount: 1000 })}
+              className="tap-target mt-1 w-full rounded-2xl bg-gradient-to-br from-sunset-bright to-sunset px-4 py-3.5 text-base font-bold uppercase tracking-[0.18em] text-white shadow-sunset transition hover:-translate-y-0.5"
+            >
+              + 1,000 chips
+            </button>
+            <p className="text-[10px] text-white/55">
+              Unlimited buy-back — play-money & social only.
+            </p>
+          </div>
+        </FeltPanel>
+      );
+    }
     const max = Math.min(table.maxBet, stack);
     const draft = clamp(betDraft, min, max);
     return (
@@ -108,6 +133,13 @@ export function FeltActionPanel({ table, mySeat, room: roomProp }: Props) {
             <p>{Math.max(0, Math.ceil(table.phaseClockMs / 1000))}s left</p>
             <p className="mt-1">
               Stack <span className="text-white">{stack}</span>
+              <button
+                onClick={() => sendAction(room, { type: 'topUp', amount: 1000 })}
+                className="ml-1 rounded-md border border-amber/45 bg-amber/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber transition hover:bg-amber/25"
+                title="Add 1,000 chips"
+              >
+                + 1k
+              </button>
             </p>
             <p>
               {table.minBet}–{table.maxBet}
@@ -148,7 +180,6 @@ export function FeltActionPanel({ table, mySeat, room: roomProp }: Props) {
         {/* Royal Match side bet — collapsible, paid out at deal time. */}
         <RoyalMatchControl table={table} mySeat={mySeat} room={room} />
 
-        <SocialRow />
       </FeltPanel>
     );
   }
@@ -198,7 +229,30 @@ export function FeltActionPanel({ table, mySeat, room: roomProp }: Props) {
             onClick={() => sendAction(room, { type: 'surrender' })}
           />
         </div>
-        <SocialRow />
+      </FeltPanel>
+    );
+  }
+
+  // --- Waiting for the table to fill — let the seated player tap Deal to
+  //     open a betting window immediately instead of staring at the message. ---
+  if (table.phase === 'waiting') {
+    return (
+      <FeltPanel tone="invite">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-amber">
+            Ready when you are
+          </p>
+          <p className="text-sm text-white/80">
+            No one else is here yet — tap Deal to start a hand solo. Friends
+            who join later get dealt into the next one.
+          </p>
+          <button
+            onClick={() => sendAction(room, { type: 'ready' })}
+            className="tap-target mt-1 w-full rounded-2xl bg-gradient-to-br from-sunset-bright to-sunset px-4 py-3.5 text-base font-bold uppercase tracking-[0.18em] text-white shadow-sunset transition hover:-translate-y-0.5"
+          >
+            Deal me in →
+          </button>
+        </div>
       </FeltPanel>
     );
   }
@@ -213,13 +267,11 @@ export function FeltActionPanel({ table, mySeat, room: roomProp }: Props) {
         <p className="mt-1 text-sm text-white">
           {table.phase === 'dealer' && 'Dealer is drawing…'}
           {table.phase === 'settling' && 'Settling the hand…'}
-          {table.phase === 'waiting' && 'Waiting for the table to fill.'}
           {table.phase === 'playing' && !mySeat.isTurn && 'Watching the action.'}
           {table.phase === 'dealing' && 'Dealing…'}
           {table.phase === 'paused' && 'Host paused the table.'}
         </p>
       </div>
-      <SocialRow />
     </FeltPanel>
   );
 }
@@ -256,13 +308,16 @@ function FeltPanel({
 
 function ActionBtn({
   label,
-  hint,
   tone = 'sunset',
   disabled,
   onClick,
 }: {
   label: string;
-  hint: string;
+  // `hint` (the keyboard/controller key) used to render as an absolute pill in
+  // the corner of the button, but it overlapped short labels like "Hit" /
+  // "Stand" once the buttons were laid out narrow in a 5-column grid. We just
+  // drop it — power users learn the shortcuts from the help screen.
+  hint?: string;
   tone?: 'sunset' | 'fold';
   disabled?: boolean;
   onClick: () => void;
@@ -276,45 +331,13 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       className={
-        'tap-target relative rounded-2xl px-3 py-3 text-sm font-bold uppercase tracking-wider transition hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0 ' +
+        'tap-target rounded-2xl px-3 py-3 text-sm font-bold uppercase tracking-wider transition hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0 ' +
         cls
       }
     >
       {label}
-      <span className="absolute right-2 top-1 rounded bg-black/30 px-1.5 py-0.5 text-[9px] font-bold opacity-80">
-        {hint}
-      </span>
     </button>
   );
-}
-
-function SocialRow() {
-  const room = useStore((s) => s.tableRoom);
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-      {(['cheers', 'facepalm', 'clap', 'taunt'] as const).map((e) => (
-        <button
-          key={e}
-          onClick={() => sendReaction(room, e)}
-          className="tap-target rounded-lg border border-white/12 bg-black/25 px-2.5 py-1.5 text-base hover:bg-black/40"
-          title={e}
-        >
-          {emoteIcon(e)}
-        </button>
-      ))}
-      <button
-        onClick={() => sendChipToss(room)}
-        className="tap-target ml-auto rounded-lg border border-white/15 bg-black/30 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/80"
-        title="R3 — toss a chip"
-      >
-        🪙 Toss
-      </button>
-    </div>
-  );
-}
-
-function emoteIcon(e: 'cheers' | 'facepalm' | 'clap' | 'taunt') {
-  return { cheers: '🥂', facepalm: '🤦', clap: '👏', taunt: '😏' }[e];
 }
 
 function clamp(n: number, lo: number, hi: number) {

@@ -3,6 +3,7 @@ import { Home } from './screens/Home';
 import { Lobby } from './screens/Lobby';
 import { Table } from './screens/Table';
 import { Craps } from './screens/Craps';
+import { Holdem } from './screens/Holdem';
 import { Toasts } from './components/Toasts';
 import { SettingsButton } from './components/SettingsPanel';
 import { useStore } from './lib/store';
@@ -92,6 +93,7 @@ export function App() {
         {view === 'lobby' && <Lobby />}
         {view === 'table' && <Table />}
         {view === 'craps' && <Craps />}
+        {view === 'holdem' && <Holdem />}
       </div>
       {/* Floating settings — always reachable except on Home where the name
        *  capture serves the same purpose. */}

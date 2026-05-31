@@ -227,6 +227,15 @@ export function Craps() {
         onToggleCam={toggleCam}
       />
 
+      {/* Primary CTAs sit ABOVE the table so the user's main action is the
+       *  first thing they see, instead of being buried under the layout. */}
+      <CrapsActionBar
+        table={table}
+        mySeat={mySeat}
+        room={room}
+        myDisplayName={myDisplayName}
+      />
+
       <CrapsFelt
         table={table}
         mySeat={mySeat}
@@ -236,10 +245,6 @@ export function Craps() {
         setChip={setChip}
         lastResult={lastResult}
       />
-
-      {!mySeat && (
-        <SitToBuyIn table={table} room={room} myDisplayName={myDisplayName} />
-      )}
 
       {!mySeat && (
         <CrapsLocalPreview
@@ -321,12 +326,6 @@ function CrapsFelt({
     },
     [room],
   );
-  const roll = useCallback(() => {
-    if (!room) return;
-    room.send(C2S.action, { type: 'roll' });
-  }, [room]);
-
-  const isShooter = mySeat?.isShooter ?? false;
   const point = table.point;
   const last = table.lastRoll;
 
@@ -442,7 +441,8 @@ function CrapsFelt({
         />
       </div>
 
-      {/* CHIP RAIL — pick a denomination, then click any pad to place. */}
+      {/* CHIP RAIL — pick a denomination, then click any pad to place.
+       *  (Roll button lives in the top action bar above the table now.) */}
       <div className="relative z-10 mt-4 flex flex-wrap items-center gap-3 px-2 sm:px-4">
         <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-amber">Chip</p>
         <div className="flex flex-wrap gap-1.5">
@@ -450,24 +450,57 @@ function CrapsFelt({
             <ChipButton key={v} value={v} active={chip === v} onClick={() => setChip(v)} />
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {mySeat && (
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-mute">
-              Stack <span className="text-ink">{mySeat.stack}</span>
-            </span>
-          )}
-          {isShooter && (
-            <button
-              onClick={roll}
-              className="tap-target rounded-2xl bg-gradient-to-br from-sunset-bright to-sunset px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white shadow-sunset transition hover:-translate-y-0.5"
-            >
-              Roll the dice →
-            </button>
-          )}
-        </div>
+        {mySeat && (
+          <span className="ml-auto text-[11px] font-semibold uppercase tracking-wider text-ink-mute">
+            Stack <span className="text-ink">{mySeat.stack}</span>
+          </span>
+        )}
       </div>
     </section>
   );
+}
+
+// Primary action surface, anchored above the felt. Renders the Sit-down CTA
+// for spectators and the big Roll button for the shooter, so the user's
+// next action is the first thing they see when the page loads.
+function CrapsActionBar({
+  table,
+  mySeat,
+  room,
+  myDisplayName,
+}: {
+  table: CrapsTableView;
+  mySeat: CrapsSeatView | null;
+  room: Room | null;
+  myDisplayName: string;
+}) {
+  const isShooter = mySeat?.isShooter ?? false;
+  if (!mySeat) {
+    return (
+      <SitToBuyIn table={table} room={room} myDisplayName={myDisplayName} />
+    );
+  }
+  if (isShooter) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sunset/55 bg-black/40 px-4 py-3 shadow-[0_0_40px_-6px_rgba(255,106,61,.5)] backdrop-blur">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-sunset">
+            You're the shooter
+          </p>
+          <p className="text-sm text-white/85">
+            Roll the dice when you're ready — the table waits for you.
+          </p>
+        </div>
+        <button
+          onClick={() => room?.send(C2S.action, { type: 'roll' })}
+          className="tap-target rounded-2xl bg-gradient-to-br from-sunset-bright to-sunset px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white shadow-sunset transition hover:-translate-y-0.5"
+        >
+          Roll the dice →
+        </button>
+      </div>
+    );
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -929,27 +962,51 @@ function DicePair({
   const [rolling, setRolling] = useState(false);
   const lastSeen = useRef(0);
 
+  // Keep the latest `last` available to the timeout via a ref — without this,
+  // the effect would have to list `last` as a dep, but `toCrapsView` returns
+  // a fresh object every Colyseus state patch. Every patch would clean up the
+  // in-flight tumble and the guard `rollNum === lastSeen.current` would skip
+  // restarting it, leaving the dice frozen on random pips that don't match
+  // the point puck (which updates immediately from state.point).
+  const latestRollRef = useRef(last);
+  latestRollRef.current = last;
+
   useEffect(() => {
     if (rollNum === 0 || rollNum === lastSeen.current) return;
     lastSeen.current = rollNum;
-    if (!last) return;
     setRolling(true);
     const interval = setInterval(() => {
       setDisplay({
         a: 1 + Math.floor(Math.random() * 6),
         b: 1 + Math.floor(Math.random() * 6),
       });
-    }, 80);
+    }, 70);
+    // Shorter tumble (1.2s) so the dice land close to when the point puck
+    // updates, instead of staying random for ~3s while the puck already shows
+    // the new point.
     const timeout = setTimeout(() => {
       clearInterval(interval);
       setRolling(false);
-      setDisplay({ a: last.a, b: last.b });
-    }, 3000);
+      const cur = latestRollRef.current;
+      if (cur) setDisplay({ a: cur.a, b: cur.b });
+    }, 1200);
     return () => {
       clearInterval(interval);
       clearTimeout(timeout);
     };
-  }, [rollNum, last]);
+  }, [rollNum]);
+
+  // Defensive: if `last` has up-to-date values for the current rollNumber and
+  // the tumble is done, make sure display matches. Catches the case where the
+  // server rolled before we mounted, or a state patch arrived after the
+  // initial mount with values that bypassed the animation path.
+  useEffect(() => {
+    if (rolling || !last) return;
+    if (display && display.a === last.a && display.b === last.b) return;
+    if (lastSeen.current === last.rollNumber) {
+      setDisplay({ a: last.a, b: last.b });
+    }
+  }, [last, rolling, display]);
 
   if (!display) {
     return (

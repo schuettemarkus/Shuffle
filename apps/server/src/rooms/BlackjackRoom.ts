@@ -47,6 +47,7 @@ import {
 import { computeVibe, emptyStats, recordHand, type SeatStats } from '../blackjack/vibe.js';
 import * as wallet from '../wallet.js';
 import { publishStatus } from '../lobbyRegistry.js';
+import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
 import type { Card } from '@shuffle/shared';
 
 const MAX_SEATS = 6;
@@ -72,7 +73,11 @@ export class BlackjackRoom extends Room<BlackjackState> {
   private tick?: NodeJS.Timeout;
   private actingSeat = -1; // index of seat whose turn it is in 'playing'
   private prevPhase = '';
-  private chatLog: ChatMessage[] = [];
+  private lobbyId = 'default';
+  private onChat = (e: ChatEvent) => {
+    if (e.lobbyId !== this.lobbyId) return;
+    this.broadcast(S2C.chat, e.msg);
+  };
   private handLog: HandRecord[] = [];
   // Per-seat session stats keyed by seat index. Reset when a seat is released
   // so a new occupant starts as a "rookie" with no carryover narrative.
@@ -84,6 +89,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     // can each have their own Blackjack room. The display name stays
     // generic — the *lobby* is the friend group's brand, not the table.
     const lobbyId = options?.lobbyId || 'default';
+    this.lobbyId = lobbyId;
     this.state.tableId = `${lobbyId}:blackjack`;
     this.state.name = 'Blackjack';
     for (let i = 0; i < MAX_SEATS; i++) {
@@ -118,10 +124,13 @@ export class BlackjackRoom extends Room<BlackjackState> {
         text,
         ts: Date.now(),
       };
-      this.chatLog.push(msg);
-      if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
-      this.broadcast(S2C.chat, msg);
+      // Lobby-scoped chat — every room (lobby + game rooms) gets the same
+      // stream via the bus. We don't broadcast directly here; the bus listener
+      // does that so each room handles its own clients exactly once.
+      postChat(this.lobbyId, msg);
     });
+
+    chatBus.on('message', this.onChat);
 
     // ---- Host controls ----
     this.onMessage(
@@ -211,8 +220,10 @@ export class BlackjackRoom extends Room<BlackjackState> {
       existing.connected = true;
       existing.graceMs = 0;
     }
-    // Bring the new client up to speed on chat + recent hand history.
-    for (const msg of this.chatLog) client.send(S2C.chat, msg);
+    // Bring the new client up to speed on chat + recent hand history. Chat
+    // is lobby-scoped (shared with every other room in the same lobby), so
+    // we pull from the bus instead of a per-room buffer.
+    for (const msg of getChatHistory(this.lobbyId)) client.send(S2C.chat, msg);
     client.send(S2C.handHistory, this.handLog);
   }
 
@@ -243,6 +254,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
 
   override onDispose() {
     if (this.tick) clearInterval(this.tick);
+    chatBus.off('message', this.onChat);
   }
 
   private isHost(client: Client): boolean {
@@ -257,6 +269,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
       case 'stand': // alias from controller B on the floor — leave seat
       case 'leave': return this.actLeave(client);
       case 'ready': return this.actReady(client);
+      case 'topUp': return this.actTopUp(client, action.amount);
       case 'bet': return this.actBet(client, action.amount);
       case 'royalMatch': return this.actRoyalMatch(client, action.amount);
       case 'hit': return this.actHit(client);
@@ -329,10 +342,30 @@ export class BlackjackRoom extends Room<BlackjackState> {
     this.releaseSeat(seat, /*cashOut*/ true);
   }
 
+  // Top up the player's seat with an arbitrary chip amount. Play money, so
+  // we don't gate on a wallet balance — this is the "buy back in" affordance
+  // the user invokes after busting. Clamped to a sane positive amount.
+  private actTopUp(client: Client, amount: number) {
+    const seat = this.findSeatBySession(client.sessionId);
+    if (!seat) return;
+    if (seat.phase === 'empty') return;
+    const clean = Math.max(0, Math.min(1_000_000, Math.floor(amount || 0)));
+    if (clean <= 0) return;
+    seat.stack += clean;
+    seat.buyIn += clean;
+    // If the player was waiting because they had no chips, refreshing the
+    // vibes lets the public stats line re-read "back in the game".
+    this.refreshVibes();
+  }
+
   private actReady(client: Client) {
     const seat = this.findSeatBySession(client.sessionId);
     if (!seat) return;
-    if (seat.phase !== 'waiting' && seat.phase !== 'settled') return;
+    // Accept any seated player when the table itself is idle. Restricting
+    // to specific seat phases caused the "Deal me in" button to be a no-op
+    // when a betting window closed with no bets (seat left in `betting`).
+    if (this.state.phase !== 'waiting' && this.state.phase !== 'settling') return;
+    if (seat.phase === 'empty') return;
     seat.wantReady = true;
     this.maybeStartBetting();
   }
@@ -686,6 +719,12 @@ export class BlackjackRoom extends Room<BlackjackState> {
     // Drop seats with no bet back to waiting.
     const live = this.state.seats.filter((s) => s.phase !== 'empty' && s.bet > 0);
     if (live.length === 0) {
+      // Reset any non-empty seats that were stuck in `betting` (no bet placed
+      // before the window closed). Without this, the "Deal me in" button is
+      // a no-op because `actReady` rejects seats whose phase is `betting`.
+      for (const s of this.state.seats) {
+        if (s.phase !== 'empty' && s.phase !== 'waiting') s.phase = 'waiting';
+      }
       this.state.phase = 'waiting';
       this.state.phaseClockMs = 0;
       return;
@@ -1030,11 +1069,11 @@ export class BlackjackRoom extends Room<BlackjackState> {
       }
       case 'settling': {
         if (this.state.phaseClockMs <= 0) {
-          // Drop empty/zero-stack players, then start a new betting window if any seat remains.
+          // Reset every seat that just settled. Players who bust to 0 stay
+          // seated — they can hit "Buy 1000 chips" to keep playing. We only
+          // skip them in the next betting window if they're still at zero.
           for (const s of this.state.seats) {
-            if (s.phase !== 'empty' && s.stack <= 0) {
-              this.releaseSeat(s, /*cashOut*/ true);
-            } else if (s.phase === 'settled') {
+            if (s.phase === 'settled') {
               s.phase = 'waiting';
             }
           }

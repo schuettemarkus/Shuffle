@@ -3,7 +3,7 @@ import type { TableView } from '../lib/store';
 export function PhaseBanner({ table }: { table: TableView }) {
   const label =
     table.phase === 'betting'
-      ? `Place your bets · ${Math.max(0, Math.ceil(table.phaseClockMs / 1000))}s`
+      ? 'Place your bets'
       : table.phase === 'dealing'
       ? 'Dealing…'
       : table.phase === 'playing'

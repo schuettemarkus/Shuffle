@@ -5,6 +5,7 @@ export const ROOMS = {
   lobby: 'lobby',
   blackjack: 'blackjack',
   craps: 'craps',
+  holdem: 'holdem',
 } as const;
 
 export type RoomName = (typeof ROOMS)[keyof typeof ROOMS];
@@ -46,6 +47,9 @@ export const S2C = {
   // Craps
   rollResult: 'rollResult',        // payload: RollResult
   diceReveal: 'diceReveal',        // payload: { roll, seed, commitHash }
+  // Hold'em
+  holdemHandResult: 'holdemHandResult',  // payload: HoldemHandResult
+  holdemHandHistory: 'holdemHandHistory',// payload: HoldemHandRecord[]
 } as const;
 
 export interface ChatMessage {

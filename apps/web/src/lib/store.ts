@@ -199,7 +199,7 @@ interface State {
   // SessionId of the current lobby's host. Used to gate the rename UI.
   lobbyHostId: string;
   // Routing
-  view: 'home' | 'lobby' | 'table' | 'craps';
+  view: 'home' | 'lobby' | 'table' | 'craps' | 'holdem';
   // Connection
   lobbyRoom: Room | null;
   tableRoom: Room | null;
@@ -208,6 +208,8 @@ interface State {
   // chat, and the LiveKit venue.
   crapsRoom: Room | null;
   crapsTable: CrapsTableView | null;
+  // Hold'em room — same pattern as Craps.
+  holdemRoom: Room | null;
   mySessionId: string | null;
   myIdentityId: string;
   myDisplayName: string;
@@ -244,6 +246,7 @@ interface State {
   setTable: (t: TableView | null) => void;
   setCrapsRoom: (r: Room | null, sessionId: string | null) => void;
   setCrapsTable: (t: CrapsTableView | null) => void;
+  setHoldemRoom: (r: Room | null, sessionId: string | null) => void;
   setIdentity: (id: string, name: string) => void;
   setSelectedSeat: (i: number | null) => void;
   setBetDraft: (n: number) => void;
@@ -269,7 +272,7 @@ interface State {
 
 export const useStore = create<State>((set) => ({
   currentLobbyId: '',
-  lobbyName: 'Shuffle',
+  lobbyName: '',
   lobbyHostId: '',
   view: 'home',
   lobbyRoom: null,
@@ -277,6 +280,7 @@ export const useStore = create<State>((set) => ({
   table: null,
   crapsRoom: null,
   crapsTable: null,
+  holdemRoom: null,
   mySessionId: null,
   myIdentityId: '',
   myDisplayName: '',
@@ -301,6 +305,7 @@ export const useStore = create<State>((set) => ({
   setTable: (t) => set({ table: t }),
   setCrapsRoom: (r, sessionId) => set({ crapsRoom: r, mySessionId: sessionId }),
   setCrapsTable: (t) => set({ crapsTable: t }),
+  setHoldemRoom: (r, sessionId) => set({ holdemRoom: r, mySessionId: sessionId }),
   setIdentity: (id, name) => set({ myIdentityId: id, myDisplayName: name }),
   setSelectedSeat: (i) => set({ selectedSeatIndex: i }),
   setBetDraft: (n) => set({ betDraft: n }),

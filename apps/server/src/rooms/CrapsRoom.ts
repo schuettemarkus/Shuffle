@@ -30,6 +30,7 @@ import {
 } from '../craps/engine.js';
 import * as wallet from '../wallet.js';
 import { publishStatus } from '../lobbyRegistry.js';
+import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
 
 const MAX_SEATS = 8;
 const TICK_MS = 100;
@@ -48,11 +49,16 @@ export class CrapsRoom extends Room<CrapsState> {
   private tick?: NodeJS.Timeout;
   private currentSeed = '';
   private nextRollNumber = 1;
-  private chatLog: ChatMessage[] = [];
+  private lobbyId = 'default';
+  private onChat = (e: ChatEvent) => {
+    if (e.lobbyId !== this.lobbyId) return;
+    this.broadcast(S2C.chat, e.msg);
+  };
 
   override onCreate(options?: { lobbyId?: string }) {
     this.setState(new CrapsState());
     const lobbyId = options?.lobbyId || 'default';
+    this.lobbyId = lobbyId;
     this.state.tableId = `${lobbyId}:craps`;
     this.state.name = 'Craps';
     for (let i = 0; i < MAX_SEATS; i++) {
@@ -86,11 +92,10 @@ export class CrapsRoom extends Room<CrapsState> {
         text,
         ts: Date.now(),
       };
-      this.chatLog.push(msg);
-      if (this.chatLog.length > CHAT_HISTORY) this.chatLog.shift();
-      this.broadcast(S2C.chat, msg);
+      postChat(this.lobbyId, msg);
     });
 
+    chatBus.on('message', this.onChat);
     this.tick = setInterval(() => this.onTick(), TICK_MS);
     this.state.phase = 'between';
     this.state.phaseClockMs = CRAPS_BETWEEN_MS;
@@ -117,7 +122,7 @@ export class CrapsRoom extends Room<CrapsState> {
       existing.connected = true;
       existing.graceMs = 0;
     }
-    for (const msg of this.chatLog) client.send(S2C.chat, msg);
+    for (const msg of getChatHistory(this.lobbyId)) client.send(S2C.chat, msg);
   }
 
   override async onLeave(client: Client, consented: boolean) {
@@ -145,6 +150,7 @@ export class CrapsRoom extends Room<CrapsState> {
 
   override onDispose() {
     if (this.tick) clearInterval(this.tick);
+    chatBus.off('message', this.onChat);
   }
 
   // ---------- actions ----------
@@ -280,6 +286,14 @@ export class CrapsRoom extends Room<CrapsState> {
     if (!seat) return;
     if (seat.index !== this.state.shooterSeat) {
       return this.sendToast(client, 'error', "Only the shooter rolls.");
+    }
+    // First-roll convenience: if we're in `between` between hands, let the
+    // shooter kick off a come-out immediately instead of waiting for the
+    // between-window timer. Otherwise we silently swallow their click while
+    // the table sits idle.
+    if (this.state.phase === 'between') {
+      this.state.phase = 'comeOut';
+      this.state.phaseClockMs = CRAPS_TURN_CLOCK_MS;
     }
     if (this.state.phase !== 'comeOut' && this.state.phase !== 'point') {
       return this.sendToast(client, 'error', 'Wait for the dealer to call bets.');

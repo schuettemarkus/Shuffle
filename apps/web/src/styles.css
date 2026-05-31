@@ -105,7 +105,7 @@ body {
   }
 }
 .dice-tumble {
-  animation: diceTumble 3s cubic-bezier(.32, 1.2, .4, 1) backwards;
+  animation: diceTumble 1.2s cubic-bezier(.32, 1.2, .4, 1) backwards;
 }
 
 /* Point puck "flop into place" — used when the come-out roll establishes a

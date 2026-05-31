@@ -8,8 +8,10 @@ import {
   type ChipFlight,
 } from '../lib/store';
 import type { Card, HandResult, RoyalMatchOutcome, SeatVibe } from '@shuffle/shared';
+import { BET_WINDOW_MS, SETTLE_MS } from '@shuffle/shared';
 import { Seat } from '../components/Seat';
 import { DealerSlot } from '../components/DealerSlot';
+import { PlayingCard, HandValueBadge } from '../components/PlayingCard';
 import { FeltActionPanel } from '../components/TableControls';
 import { PhaseBanner } from '../components/PhaseBanner';
 import { ChatPanel } from '../components/ChatPanel';
@@ -17,6 +19,7 @@ import { HandHistoryPanel } from '../components/HandHistoryPanel';
 import { TableHostPanel } from '../components/TableHostPanel';
 import { ShareInvitePanel } from '../components/ShareInvitePanel';
 import { sendAction, sendReaction, sendChipToss } from '../lib/intents';
+import * as wallet from '../lib/wallet';
 import { rumble, startGamepadLoop, type GamepadIntent } from '../lib/gamepad';
 import { RoomEvent, Track } from 'livekit-client';
 import type { RemoteTrackPublication } from 'livekit-client';
@@ -104,6 +107,8 @@ export function Table() {
       const mine = r.perSeat.find((p) => p.playerId === tableRoom.sessionId);
       if (mine) {
         const total = mine.delta + (mine.splitDelta ?? 0);
+        const royal = mine.royalMatchDelta ?? 0;
+        const profit = total + royal;
         if (total > 0) {
           pushToast({ kind: 'win', text: `+${total} · ${mine.outcome}` });
           rumble(180, 0.7);
@@ -113,6 +118,17 @@ export function Table() {
         } else {
           pushToast({ kind: 'info', text: `Push · stack returned` });
         }
+        // Persist this hand into the lifetime stats so the user's running
+        // W/L line carries across sessions (no profile needed — keyed off
+        // their localStorage identityId).
+        const outcome = mine.outcome;
+        wallet.recordHand({
+          won: total > 0 && outcome !== 'push',
+          lost: total < 0,
+          pushed: outcome === 'push',
+          blackjack: outcome === 'blackjack',
+          profit,
+        });
       }
     });
     tableRoom.onMessage('shuffleReveal', (m: { seed: string; commitHash: string }) => {
@@ -391,6 +407,7 @@ export function Table() {
         camEnabled={camEnabled}
         onToggleMic={toggleMic}
         onToggleCam={toggleCam}
+        lastResult={lastResult}
       />
 
       {/* Tiny floating local preview when the user hasn't sat down yet — so
@@ -412,8 +429,6 @@ export function Table() {
       <ReactionsLayer reactions={reactions} table={table} />
 
       <ChipFlightsLayer />
-
-      {lastResult && <HandResultRibbon r={lastResult} />}
 
       <ChatPanel room={tableRoom} mySessionId={mySessionId} />
       <HandHistoryPanel room={tableRoom} />
@@ -443,6 +458,7 @@ function FeltSurface({
   camEnabled,
   onToggleMic,
   onToggleCam,
+  lastResult,
 }: {
   table: TableView;
   mySeat: SeatView | null;
@@ -454,13 +470,14 @@ function FeltSurface({
   camEnabled: boolean;
   onToggleMic: () => void;
   onToggleCam: () => void;
+  lastResult: HandResult | null;
 }) {
   const pot = selectPot(table);
-  // Perimeter layout — equal-width tiles arranged 3 above the felt and 3
-  // below. Every tile is 1/3 of the row so seats read as a consistent
-  // "everyone sitting at the same table".
-  const topRow = table.seats.slice(0, 3);
-  const bottomRow = table.seats.slice(3, 6);
+  // Flanking layout — the felt sits at the top, and three seats run down each
+  // side so the view reads like "everyone gathered around one table". Falls
+  // back to a 3+3 stacked grid on phones where the columns get too thin.
+  const leftSeats = table.seats.slice(0, 3);
+  const rightSeats = table.seats.slice(3, 6);
 
   const streamFor = (s: SeatView): MediaStream | null => {
     if (s.playerId === mySessionId) return camStream;
@@ -471,7 +488,6 @@ function FeltSurface({
   const seatProps = (s: SeatView) => {
     const mine = s.playerId === mySessionId;
     return {
-      key: s.index,
       seat: s,
       isMine: mine,
       isDealerButton: table.dealerButtonSeat === s.index,
@@ -489,26 +505,30 @@ function FeltSurface({
   };
 
   return (
-    <section className="relative mx-auto w-full max-w-4xl">
-      {/* TOP ROW — three equal-width tiles. */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        {topRow.map((s) => (
-          <Seat {...seatProps(s)} />
-        ))}
-      </div>
-
-      {/* FELT — centered between top and bottom rows. */}
-      <div className="mt-3 flex justify-center sm:mt-4">
-        <div className="w-full max-w-2xl">
-          <FeltCenter table={table} mySeat={mySeat} room={room} pot={pot} />
+    <section className="relative mx-auto w-full max-w-5xl">
+      {/* MOBILE — felt at top, 3+3 grid below so the columns don't squeeze. */}
+      <div className="sm:hidden">
+        <FeltCenter table={table} mySeat={mySeat} room={room} pot={pot} lastResult={lastResult} mySessionId={mySessionId} />
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {table.seats.map((s) => (
+            <Seat key={s.index} {...seatProps(s)} />
+          ))}
         </div>
       </div>
 
-      {/* BOTTOM ROW — three more equal-width tiles. */}
-      <div className="mt-3 grid grid-cols-3 gap-2 sm:mt-4 sm:gap-3">
-        {bottomRow.map((s) => (
-          <Seat {...seatProps(s)} />
-        ))}
+      {/* DESKTOP — felt at the top, three seats stacked down each side. */}
+      <div className="hidden gap-3 sm:grid sm:grid-cols-[170px_minmax(0,1fr)_170px] md:grid-cols-[190px_minmax(0,1fr)_190px]">
+        <div className="flex flex-col gap-3">
+          {leftSeats.map((s) => (
+            <Seat key={s.index} {...seatProps(s)} />
+          ))}
+        </div>
+        <FeltCenter table={table} mySeat={mySeat} room={room} pot={pot} lastResult={lastResult} mySessionId={mySessionId} />
+        <div className="flex flex-col gap-3">
+          {rightSeats.map((s) => (
+            <Seat key={s.index} {...seatProps(s)} />
+          ))}
+        </div>
       </div>
 
       <p className="mt-4 text-center font-display text-[10px] tracking-[0.5em] text-white/30">
@@ -526,62 +546,225 @@ function FeltCenter({
   mySeat,
   room,
   pot,
+  lastResult,
+  mySessionId,
 }: {
   table: TableView;
   mySeat: SeatView | null;
   room: import('colyseus.js').Room | null;
   pot: number;
+  lastResult: HandResult | null;
+  mySessionId: string | null;
 }) {
   return (
-    <div className="felt relative overflow-hidden rounded-[28px] border border-white/8 px-3 py-4 shadow-[0_30px_80px_-20px_rgba(0,0,0,.7)] sm:px-6 sm:py-6">
+    <div className="felt relative overflow-hidden rounded-[24px] border border-white/8 px-3 py-3 shadow-[0_30px_80px_-20px_rgba(0,0,0,.7)] sm:px-4 sm:py-4">
       {/* Subtle inner curves for the table outline. */}
-      <div className="pointer-events-none absolute inset-3 rounded-[240px_/_140px] border border-white/10" />
-      <div className="pointer-events-none absolute inset-6 rounded-[160px_/_110px] border border-white/5" />
+      <div className="pointer-events-none absolute inset-2 rounded-[240px_/_140px] border border-white/10" />
+      <div className="pointer-events-none absolute inset-4 rounded-[160px_/_110px] border border-white/5" />
 
-      <div className="relative flex flex-col items-center gap-2 sm:gap-3">
+      {/* Win/lose banner sits dead-centre over the felt during the settling
+       *  window only. `lastResult` is the PREVIOUS hand's outcome — if we
+       *  also showed it during the next hand's `dealer` phase, every draw
+       *  the dealer makes would flash a stale "You won / You lost" pill. */}
+      {lastResult && table.phase === 'settling' && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center px-3">
+          <HandResultRibbon r={lastResult} mySessionId={mySessionId} />
+        </div>
+      )}
+
+      <div className="relative flex flex-col items-center gap-1.5 sm:gap-2">
         <DealerSign />
         <DealerSlot table={table} />
-        <PotChips pot={pot} />
-        <CountStrip table={table} />
-      </div>
+        <PhaseCountdown table={table} />
 
-      <div className="relative z-10 mt-4 sm:mt-5">
-        <ProminentActionPanel table={table} mySeat={mySeat} room={room} />
+        {/* Bet slip — anchored HIGH on the felt, just under the dealer area,
+         *  so the active action surface is the centerpiece. */}
+        <div className="relative z-10 w-full max-w-md">
+          <ProminentActionPanel table={table} mySeat={mySeat} room={room} />
+        </div>
+
+        <PotChips pot={pot} />
+
+        {/* Local player's hand mirrors the dealer above — big xl cards on the
+         *  bottom half of the felt so the player's own cards are as readable
+         *  as the dealer's. Everyone else sees each other's cards inside
+         *  their own seat tile (handled by <Seat>). */}
+        <LocalPlayerHand mySeat={mySeat} />
+
+        <TableVibe table={table} />
       </div>
     </div>
   );
 }
 
-// Public Hi-Lo count strip — visible to everyone at the table. Single-deck
-// blackjack here, and counting is fair game. We show the running count, the
-// true count (running ÷ decks remaining), and how many decks are left.
-function CountStrip({ table }: { table: TableView }) {
+// Single table-vibe indicator. Reads the public Hi-Lo true count and
+// summarises it as a glanceable mood — players still get the counting signal
+// (single-deck, counting allowed) without a wall of running/true/decks-left
+// numbers cluttering the felt.
+function TableVibe({ table }: { table: TableView }) {
   const totalCards = table.deckCount * 52;
   const remainingCards = Math.max(0, totalCards - table.cardsDealt);
   const decksRemaining = remainingCards / 52;
   const trueCount =
     decksRemaining > 0 ? table.runningCount / decksRemaining : table.runningCount;
-  const runTone =
-    table.runningCount > 0 ? 'text-win' : table.runningCount < 0 ? 'text-fold' : 'text-ink-soft';
-  const trueTone =
-    trueCount > 0 ? 'text-win' : trueCount < 0 ? 'text-fold' : 'text-ink-soft';
+  const vibe =
+    trueCount >= 2.5
+      ? { label: 'Hot table', glyph: '🔥', cls: 'border-sunset/55 bg-sunset/15 text-sunset' }
+      : trueCount >= 1
+      ? { label: 'Warming up', glyph: '☀️', cls: 'border-amber/55 bg-amber/15 text-amber' }
+      : trueCount <= -2.5
+      ? { label: 'Ice cold', glyph: '🧊', cls: 'border-[#69BBE0]/55 bg-[#69BBE0]/15 text-[#9DD3EE]' }
+      : trueCount <= -1
+      ? { label: 'Cooling off', glyph: '❄️', cls: 'border-[#69BBE0]/40 bg-[#69BBE0]/10 text-[#9DD3EE]' }
+      : { label: 'Even keel', glyph: '⚖️', cls: 'border-white/15 bg-black/40 text-ink-soft' };
   return (
-    <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber/35 bg-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] backdrop-blur">
-      <span className="text-amber">Single deck · counting OK</span>
-      <span className="text-white/30">·</span>
-      <span className={'tabular-nums ' + runTone}>
-        Running {table.runningCount > 0 ? '+' : ''}
-        {table.runningCount}
+    <div
+      className={
+        'mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] backdrop-blur ' +
+        vibe.cls
+      }
+      title={`Hi-Lo true count ${trueCount >= 0 ? '+' : ''}${trueCount.toFixed(1)}`}
+    >
+      <span className="text-sm leading-none">{vibe.glyph}</span>
+      <span>{vibe.label}</span>
+    </div>
+  );
+}
+
+// Big, glanceable countdown on the felt — "Place your bets · 12s" in tiny
+// header copy doesn't compete with a chip stack the user is sliding around,
+// so we render a ring + bold number right under the dealer sign whenever a
+// clock is actively running.
+function PhaseCountdown({ table }: { table: TableView }) {
+  const totalMs =
+    table.phase === 'betting'
+      ? BET_WINDOW_MS
+      : table.phase === 'settling'
+      ? SETTLE_MS
+      : 0;
+  if (totalMs <= 0) return null;
+  const remainingMs = Math.max(0, table.phaseClockMs);
+  if (remainingMs <= 0) return null;
+  const seconds = Math.ceil(remainingMs / 1000);
+  const pct = Math.min(1, Math.max(0, remainingMs / totalMs));
+  // Stroke-dash ring: circumference of a 56-radius circle ≈ 351.86. The full
+  // ring is dashed by the remaining fraction so it visibly drains as the
+  // clock runs down.
+  const circumference = 2 * Math.PI * 56;
+  const dashOffset = circumference * (1 - pct);
+  const tone =
+    remainingMs <= 4000
+      ? 'text-fold'
+      : remainingMs <= 8000
+      ? 'text-amber'
+      : 'text-sunset';
+  const ringColor =
+    remainingMs <= 4000 ? '#E0556B' : remainingMs <= 8000 ? '#FFB14E' : '#FF6A3D';
+  const label = table.phase === 'betting' ? 'Bet' : 'Settle';
+  return (
+    <div className="relative grid h-28 w-28 place-items-center sm:h-32 sm:w-32">
+      <svg
+        viewBox="0 0 128 128"
+        className="absolute inset-0 h-full w-full -rotate-90 drop-shadow-[0_6px_24px_rgba(255,106,61,.45)]"
+        aria-hidden
+      >
+        <circle
+          cx="64"
+          cy="64"
+          r="56"
+          fill="rgba(0,0,0,.4)"
+          stroke="rgba(255,255,255,.1)"
+          strokeWidth="6"
+        />
+        <circle
+          cx="64"
+          cy="64"
+          r="56"
+          fill="none"
+          stroke={ringColor}
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          style={{ transition: 'stroke-dashoffset 220ms linear' }}
+        />
+      </svg>
+      <div className="pointer-events-none flex flex-col items-center justify-center leading-none">
+        <span className={'font-display text-4xl font-black tabular-nums sm:text-5xl ' + tone}>
+          {seconds}
+        </span>
+        <span className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-ink-soft">
+          {label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Local player's hand rendered at xl across the bottom half of the felt —
+// mirrors the dealer slot above so the user's own cards read as the second
+// hero of the table. Other players still see this user's cards inside their
+// own seat tile (the seat-tile hand still renders for everyone else; just
+// the local player's seat hand is hidden to avoid duplication).
+function LocalPlayerHand({ mySeat }: { mySeat: SeatView | null }) {
+  if (!mySeat || mySeat.hand.length === 0) return null;
+  const splitting = mySeat.splitBet > 0;
+  return (
+    <div className="flex w-full flex-col items-center gap-1.5">
+      <span className="rounded-full border border-amber/45 bg-black/40 px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.3em] text-amber backdrop-blur">
+        Your hand
       </span>
-      <span className="text-white/30">·</span>
-      <span className={'tabular-nums ' + trueTone}>
-        True {trueCount >= 0 ? '+' : ''}
-        {trueCount.toFixed(1)}
-      </span>
-      <span className="text-white/30">·</span>
-      <span className="tabular-nums text-ink-soft">
-        {decksRemaining.toFixed(1)} decks left
-      </span>
+      <div className="flex items-end justify-center gap-4">
+        <LocalPlayerHandColumn
+          hand={mySeat.hand}
+          handValue={mySeat.handValue}
+          isSoft={mySeat.isSoft}
+          active={!splitting || !mySeat.splitActive}
+          label={splitting ? 'Hand 1' : undefined}
+        />
+        {splitting && (
+          <LocalPlayerHandColumn
+            hand={mySeat.splitHand}
+            handValue={mySeat.splitHandValue}
+            isSoft={mySeat.splitIsSoft}
+            active={mySeat.splitActive}
+            label="Hand 2"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LocalPlayerHandColumn({
+  hand,
+  handValue,
+  isSoft,
+  active,
+  label,
+}: {
+  hand: Card[];
+  handValue: number;
+  isSoft: boolean;
+  active: boolean;
+  label?: string;
+}) {
+  if (hand.length === 0) return null;
+  return (
+    <div className={'flex flex-col items-center gap-1.5 ' + (active ? '' : 'opacity-55')}>
+      <div className="flex min-h-[140px] items-end justify-center gap-2 sm:min-h-[172px]">
+        {hand.map((c, i) => (
+          <PlayingCard key={i} card={c} index={i} size="xl" />
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <HandValueBadge value={handValue} soft={isSoft} size="xl" />
+        {label && (
+          <span className="rounded-full border border-white/15 bg-black/40 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-ink-mute">
+            {label}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -780,12 +963,85 @@ function Fairness({ table }: { table: TableView }) {
   );
 }
 
-function HandResultRibbon({ r }: { r: HandResult }) {
+function HandResultRibbon({ r, mySessionId }: { r: HandResult; mySessionId: string | null }) {
+  const mine = mySessionId ? r.perSeat.find((s) => s.playerId === mySessionId) : null;
+  // Spectators (no seat) still see a small "Round N · Dealer X" pill so they
+  // know what just happened — but they don't need a giant banner.
+  if (!mine) {
+    return (
+      <div className="rounded-full border border-border-hi bg-black/60 px-4 py-2 text-xs backdrop-blur">
+        <span className="font-bold text-ink">Round {r.round}</span>
+        <span className="mx-2 text-ink-mute">·</span>
+        <span className="text-ink">Dealer {r.dealerValue}</span>
+      </div>
+    );
+  }
+  const delta =
+    mine.delta + (mine.splitDelta ?? 0) + (mine.royalMatchDelta ?? 0);
+  const isBlackjack = mine.outcome === 'blackjack';
+  const mood: 'win' | 'lose' | 'push' =
+    isBlackjack || delta > 0 ? 'win' : delta < 0 ? 'lose' : 'push';
+
+  const headline = isBlackjack
+    ? 'Blackjack!'
+    : mood === 'win'
+    ? 'You won'
+    : mood === 'lose'
+    ? mine.outcome === 'bust'
+      ? 'Busted'
+      : mine.outcome === 'surrender'
+      ? 'Surrendered'
+      : 'You lost'
+    : 'Push';
+
+  const ringClass =
+    mood === 'win'
+      ? 'border-win/70 shadow-[0_0_60px_-10px_rgba(63,190,147,.7)]'
+      : mood === 'lose'
+      ? 'border-fold/70 shadow-[0_0_60px_-10px_rgba(255,124,150,.6)]'
+      : 'border-amber/55 shadow-[0_0_60px_-12px_rgba(255,177,78,.45)]';
+  const glowClass =
+    mood === 'win'
+      ? 'from-win/35 via-win/10 to-transparent'
+      : mood === 'lose'
+      ? 'from-fold/30 via-fold/10 to-transparent'
+      : 'from-amber/25 via-amber/8 to-transparent';
+  const headlineClass =
+    mood === 'win'
+      ? 'text-win'
+      : mood === 'lose'
+      ? 'text-[#FF9DAC]'
+      : 'text-amber';
+  const deltaClass =
+    delta > 0 ? 'text-win' : delta < 0 ? 'text-[#FF9DAC]' : 'text-amber';
+
   return (
-    <div className="fixed inset-x-0 top-[max(env(safe-area-inset-top),16px)] z-40 mx-auto flex max-w-md items-center justify-center gap-2 rounded-full border border-border-hi bg-black/60 px-4 py-2 text-xs backdrop-blur">
-      <span className="font-bold text-ink">Round {r.round}</span>
-      <span className="text-ink-mute">·</span>
-      <span className="text-ink">Dealer {r.dealerValue}</span>
+    <div
+      className={
+        'pointer-events-none relative overflow-hidden rounded-2xl border bg-black/80 px-6 py-3 backdrop-blur-md animate-rise ' +
+        ringClass
+      }
+    >
+      <div className={'pointer-events-none absolute inset-0 bg-gradient-to-b ' + glowClass} />
+      <div className="relative flex items-center gap-4">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-bold uppercase tracking-[0.32em] text-ink-mute">
+            Round {r.round} · Dealer {r.dealerValue}
+          </span>
+          <span className={'font-display text-3xl font-black leading-none sm:text-4xl ' + headlineClass}>
+            {headline}
+          </span>
+        </div>
+        <div className="flex flex-col items-end">
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
+            Net
+          </span>
+          <span className={'font-display text-3xl font-black tabular-nums leading-none sm:text-4xl ' + deltaClass}>
+            {delta > 0 ? '+' : ''}
+            {delta}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

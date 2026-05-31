@@ -46,3 +46,11 @@ export async function joinCraps(opts: {
 }): Promise<Room> {
   return getClient().joinOrCreate(ROOMS.craps, opts);
 }
+
+export async function joinHoldem(opts: {
+  lobbyId: string;
+  identityId: string;
+  displayName: string;
+}): Promise<Room> {
+  return getClient().joinOrCreate(ROOMS.holdem, opts);
+}

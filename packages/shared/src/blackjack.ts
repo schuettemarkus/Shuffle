@@ -137,6 +137,7 @@ export type TableAction =
   | { type: 'split' }
   | { type: 'surrender' }
   | { type: 'ready' }                                  // ready up to start dealing
+  | { type: 'topUp'; amount: number }                  // buy back into the seat with N more chips (unlimited)
   | { type: 'reaction'; emote: Emote }
   | { type: 'tossChip' };
 
