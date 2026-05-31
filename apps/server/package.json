@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,14 +21,14 @@
     "dotenv": "^17.4.2",
     "express": "^4.21.1",
     "livekit-server-sdk": "^2.15.4",
-    "nanoid": "^5.0.9"
+    "nanoid": "^5.0.9",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^22.10.1",
     "colyseus.js": "^0.16.22",
-    "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }
 }

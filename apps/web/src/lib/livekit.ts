@@ -51,6 +51,7 @@ const AUDIO_SCALE = 0.3;
 export async function joinVenue(opts: {
   identityId: string;
   displayName: string;
+  lobbyId: string;
 }): Promise<LiveKitVenue> {
   const res = await fetch(`${SERVER_URL}/livekit/token`, {
     method: 'POST',
@@ -58,6 +59,7 @@ export async function joinVenue(opts: {
     body: JSON.stringify({
       identityId: opts.identityId,
       displayName: opts.displayName,
+      lobbyId: opts.lobbyId,
     }),
   });
   if (!res.ok) throw new Error(`token fetch failed: ${res.status}`);

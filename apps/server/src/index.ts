@@ -13,7 +13,8 @@ import { BlackjackRoom } from './rooms/BlackjackRoom.js';
 import { CrapsRoom } from './rooms/CrapsRoom.js';
 import { HoldemRoom } from './rooms/HoldemRoom.js';
 import { ROOMS } from '@shuffle/shared';
-import { getLiveKitConfig, mintToken, VENUE_ROOM } from './livekit.js';
+import { getLiveKitConfig, mintToken } from './livekit.js';
+import { allow } from './throttle.js';
 
 const PORT = Number(process.env.PORT ?? 2567);
 
@@ -158,27 +159,40 @@ function escapeXml(s: string): string {
   ));
 }
 
-// LiveKit token vending — clients hit this to join the venue room.
+// LiveKit token vending — clients hit this to join their per-lobby room.
+// The lobbyId IS the invite secret: knowing it = invited to the lobby, so
+// we just verify it's well-formed and use it to scope the LiveKit room.
+// Rate-limited to 1 token / 30s per identity to slow brute-force scanning.
 app.post('/livekit/token', async (req, res) => {
   const cfg = getLiveKitConfig();
   if (!cfg.enabled) {
     res.status(503).json({ error: 'LiveKit not configured' });
     return;
   }
-  const { identityId, displayName } = (req.body ?? {}) as {
+  const { identityId, displayName, lobbyId } = (req.body ?? {}) as {
     identityId?: string;
     displayName?: string;
+    lobbyId?: string;
   };
-  if (!identityId) {
+  if (!identityId || typeof identityId !== 'string' || identityId.length > 128) {
     res.status(400).json({ error: 'identityId required' });
     return;
   }
+  if (!lobbyId || typeof lobbyId !== 'string' || !/^[a-zA-Z0-9_-]{3,64}$/.test(lobbyId)) {
+    res.status(400).json({ error: 'lobbyId required' });
+    return;
+  }
+  if (!allow('livekit-token', identityId, 30_000)) {
+    res.status(429).json({ error: 'slow down' });
+    return;
+  }
   try {
-    const token = await mintToken({
+    const { token, room } = await mintToken({
       identityId,
       displayName: displayName ?? 'Guest',
+      lobbyId,
     });
-    res.json({ token, url: cfg.url, room: VENUE_ROOM });
+    res.json({ token, url: cfg.url, room });
   } catch (err) {
     console.error('[livekit] token error', err);
     res.status(500).json({ error: 'token-mint failed' });

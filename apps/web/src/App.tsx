@@ -57,16 +57,22 @@ export function App() {
     if (name) useStore.getState().setView('lobby');
   }, [setIdentity, setLobbyId]);
 
-  // One persistent LiveKit venue connection — survives screen changes so
-  // spatial audio is continuous as you walk floor → table → floor.
+  // One persistent LiveKit venue connection per lobby — survives screen
+  // changes so spatial audio is continuous as you walk floor → table → floor.
+  // Switching lobbies (multi-lobby UI) tears down the old venue and joins
+  // the new lobby's LiveKit room.
   useEffect(() => {
-    if (!myIdentityId || !myDisplayName) return;
+    if (!myIdentityId || !myDisplayName || !currentLobbyId) return;
     if (venue) return;
     let cancelled = false;
     let opened: Awaited<ReturnType<typeof joinVenue>> | null = null;
     (async () => {
       try {
-        opened = await joinVenue({ identityId: myIdentityId, displayName: myDisplayName });
+        opened = await joinVenue({
+          identityId: myIdentityId,
+          displayName: myDisplayName,
+          lobbyId: currentLobbyId,
+        });
         if (cancelled) {
           await opened.destroy();
           return;
@@ -83,10 +89,7 @@ export function App() {
       setVenue(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myIdentityId, myDisplayName]);
-
-  // Quiet the "unused currentLobbyId" lint while still keeping it in scope.
-  void currentLobbyId;
+  }, [myIdentityId, myDisplayName, currentLobbyId]);
 
   return (
     <div className="relative min-h-screen overflow-hidden">
