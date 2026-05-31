@@ -14,3 +14,6 @@ coverage
 !.vscode/extensions.json
 .idea
 *.tsbuildinfo
+
+# Runtime persistence (server-generated)
+apps/server/data/
