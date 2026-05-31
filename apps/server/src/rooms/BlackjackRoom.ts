@@ -48,6 +48,7 @@ import { computeVibe, emptyStats, recordHand, type SeatStats } from '../blackjac
 import * as wallet from '../wallet.js';
 import { publishStatus } from '../lobbyRegistry.js';
 import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
+import { allow } from '../throttle.js';
 import type { Card } from '@shuffle/shared';
 
 const MAX_SEATS = 6;
@@ -113,6 +114,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     this.onMessage(C2S.chat, (client, payload: { text: string }) => {
       const text = (payload?.text ?? '').toString().trim().slice(0, 280);
       if (!text) return;
+      if (!allow('chat', client.sessionId, 500)) return;
       const seat = this.findSeatBySession(client.sessionId);
       const name = (seat?.displayName ||
         (client.userData as JoinOptions | undefined)?.displayName ||

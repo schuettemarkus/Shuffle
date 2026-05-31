@@ -113,19 +113,30 @@ export function ChatPanel({ room, mySessionId }: Props) {
         {messages.length === 0 && (
           <p className="py-2 text-xs text-ink-mute">No chatter yet — say hi.</p>
         )}
-        {messages.map((m) => (
-          <div key={m.id} className="mb-1.5">
-            <span
-              className={
-                'mr-1.5 text-[11px] font-bold ' +
-                (m.from === mySessionId ? 'text-sunset' : 'text-ink')
-              }
-            >
-              {m.name}
-            </span>
-            <span className="text-ink-soft">{m.text}</span>
-          </div>
-        ))}
+        {messages.map((m) => {
+          if (m.from === '__system__') {
+            return (
+              <div key={m.id} className="my-1.5 flex justify-center">
+                <span className="rounded-full border border-amber/35 bg-amber/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber">
+                  {m.text}
+                </span>
+              </div>
+            );
+          }
+          return (
+            <div key={m.id} className="mb-1.5">
+              <span
+                className={
+                  'mr-1.5 text-[11px] font-bold ' +
+                  (m.from === mySessionId ? 'text-sunset' : 'text-ink')
+                }
+              >
+                {m.name}
+              </span>
+              <span className="text-ink-soft">{m.text}</span>
+            </div>
+          );
+        })}
       </div>
 
       <div className="flex gap-1.5 border-t border-white/5 p-2">

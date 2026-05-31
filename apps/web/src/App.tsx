@@ -1,11 +1,15 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { Home } from './screens/Home';
 import { Lobby } from './screens/Lobby';
-import { Table } from './screens/Table';
-import { Craps } from './screens/Craps';
-import { Holdem } from './screens/Holdem';
 import { Toasts } from './components/Toasts';
 import { SettingsButton } from './components/SettingsPanel';
+
+// Lazy-load the game screens so the initial bundle (lobby/home) stays small.
+// Vite was warning at ~940KB single chunk; splitting these saves ~500KB on
+// first paint when visitors are still picking a game.
+const Table = lazy(() => import('./screens/Table').then((m) => ({ default: m.Table })));
+const Craps = lazy(() => import('./screens/Craps').then((m) => ({ default: m.Craps })));
+const Holdem = lazy(() => import('./screens/Holdem').then((m) => ({ default: m.Holdem })));
 import { useStore } from './lib/store';
 import { getDisplayName, getIdentityId } from './lib/identity';
 import { joinVenue } from './lib/livekit';
@@ -91,9 +95,17 @@ export function App() {
       <div className="relative z-10 min-h-screen">
         {view === 'home' && <Home />}
         {view === 'lobby' && <Lobby />}
-        {view === 'table' && <Table />}
-        {view === 'craps' && <Craps />}
-        {view === 'holdem' && <Holdem />}
+        <Suspense
+          fallback={
+            <div className="flex h-screen items-center justify-center text-ink-mute">
+              Walking over…
+            </div>
+          }
+        >
+          {view === 'table' && <Table />}
+          {view === 'craps' && <Craps />}
+          {view === 'holdem' && <Holdem />}
+        </Suspense>
       </div>
       {/* Floating settings — always reachable except on Home where the name
        *  capture serves the same purpose. */}

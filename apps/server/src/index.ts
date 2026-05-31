@@ -18,8 +18,29 @@ import { getLiveKitConfig, mintToken, VENUE_ROOM } from './livekit.js';
 const PORT = Number(process.env.PORT ?? 2567);
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+// Lock CORS to a known list. Set CORS_ORIGINS=https://shuffle.example.com,…
+// in prod; falls back to localhost / LAN dev origins so phones can still join
+// over the dev network.
+const allowedOrigins = (process.env.CORS_ORIGINS ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // server-to-server / curl
+      if (allowedOrigins.length && allowedOrigins.includes(origin)) {
+        return cb(null, true);
+      }
+      // Dev fallback: localhost / LAN-IP origins on the Vite dev port.
+      if (/^https?:\/\/(localhost|127\.0\.0\.1|\d+\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+        return cb(null, true);
+      }
+      cb(new Error(`CORS blocked for origin ${origin}`));
+    },
+  }),
+);
+app.use(express.json({ limit: '8kb' }));
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, name: 'shuffle-server' });

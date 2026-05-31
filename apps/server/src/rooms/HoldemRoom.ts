@@ -35,6 +35,7 @@ import { evaluateBest } from '../holdem/eval.js';
 import { buildSidePots, type Contribution } from '../holdem/sidepots.js';
 import { publishStatus } from '../lobbyRegistry.js';
 import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
+import { allow } from '../throttle.js';
 
 const TICK_MS = 100;
 const HAND_HISTORY = 10;
@@ -89,6 +90,7 @@ export class HoldemRoom extends Room<HoldemState> {
       const seat = this.findSeatBySession(client.sessionId);
       const text = String(payload?.text ?? '').trim().slice(0, 280);
       if (!text) return;
+      if (!allow('chat', client.sessionId, 500)) return;
       const name = (seat?.displayName ||
         (client.userData as JoinOptions | undefined)?.displayName ||
         'Guest').slice(0, 24);

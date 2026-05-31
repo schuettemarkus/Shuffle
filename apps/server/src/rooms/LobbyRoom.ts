@@ -11,6 +11,9 @@ import { ROOMS, C2S, S2C, type ChatMessage } from '@shuffle/shared';
 import { nanoid } from 'nanoid';
 import { lobbyBus, allStatuses, type TableStatus } from '../lobbyRegistry.js';
 import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
+import { allow } from '../throttle.js';
+
+const SYSTEM_SENDER = '__system__';
 
 class LobbyTableSchema extends Schema {
   @type('string') tableId = '';
@@ -95,6 +98,7 @@ export class LobbyRoom extends Room<LobbyState> {
     this.onMessage(C2S.chat, (client, payload: { text?: string }) => {
       const text = (payload?.text ?? '').toString().trim().slice(0, 280);
       if (!text) return;
+      if (!allow('chat', client.sessionId, 500)) return; // 2 msgs/sec cap
       const opts = (client.userData ?? {}) as LobbyJoinOptions;
       const name = (opts.displayName || 'Guest').slice(0, 24);
       const msg: ChatMessage = {
@@ -115,13 +119,30 @@ export class LobbyRoom extends Room<LobbyState> {
   }
 
   override onJoin(client: Client, opts: LobbyJoinOptions = {}) {
-    client.userData = {
-      identityId: opts.identityId ?? client.sessionId,
-      displayName: opts.displayName ?? 'Guest',
-    };
-    if (!this.state.hostId) this.state.hostId = client.sessionId;
+    const identityId = opts.identityId ?? client.sessionId;
+    const displayName = (opts.displayName ?? 'Guest').slice(0, 24);
+    client.userData = { identityId, displayName };
+    const isFirst = !this.state.hostId;
+    if (isFirst) this.state.hostId = client.sessionId;
     this.state.playersOnline = this.clients.length;
+    // Replay backlog to the new client first so they don't miss earlier
+    // history, then announce them so everyone (incl. them) sees the
+    // "Maya joined" line as the latest message.
     for (const msg of getChatHistory(this.lobbyId)) client.send(S2C.chat, msg);
+    // Skip the announcement for the very first joiner (no one to notify yet)
+    // and for identityIds we've already announced this session (handles
+    // tab refreshes within the lobby's lifetime).
+    if (!isFirst && !this.announcedIdentities.has(identityId)) {
+      this.announcedIdentities.add(identityId);
+      const msg: ChatMessage = {
+        id: nanoid(8),
+        from: SYSTEM_SENDER,
+        name: 'System',
+        text: `${displayName} joined the lobby`,
+        ts: Date.now(),
+      };
+      postChat(this.lobbyId, msg);
+    }
   }
 
   override onLeave(client: Client) {
@@ -131,6 +152,8 @@ export class LobbyRoom extends Room<LobbyState> {
     }
     this.state.playersOnline = this.clients.length;
   }
+
+  private announcedIdentities = new Set<string>();
 
   private applyStatus(s: TableStatus) {
     const row = this.state.tables.get(s.tableId);
