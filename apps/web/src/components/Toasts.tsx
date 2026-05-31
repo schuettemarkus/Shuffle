@@ -11,12 +11,16 @@ export function Toasts() {
   }, [toasts, dismiss]);
 
   if (toasts.length === 0) return null;
+  // Stack the toast feed on the right edge (out of the way of the table) and
+  // slightly narrower so it reads as a notification log rather than a
+  // headline. On mobile we keep the bottom-centered layout since there's no
+  // sidebar space to spare.
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 mx-auto flex max-w-md flex-col items-center gap-2 px-4 sm:bottom-6">
+    <div className="pointer-events-none fixed bottom-4 left-4 right-4 z-50 flex flex-col items-center gap-1.5 sm:bottom-auto sm:left-auto sm:right-4 sm:top-20 sm:max-w-[280px] sm:items-end">
       {toasts.map((t) => (
         <div
           key={t.id}
-          className="pointer-events-auto w-full rounded-xl border border-border-hi bg-surface px-4 py-2.5 text-sm shadow-brand"
+          className="pointer-events-auto w-full max-w-[420px] rounded-lg border border-border-hi bg-surface/90 px-3 py-1.5 text-xs shadow-brand backdrop-blur sm:max-w-none"
           style={{
             borderColor:
               t.kind === 'error'

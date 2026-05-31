@@ -1042,25 +1042,25 @@ function HandResultRibbon({ r, mySessionId }: { r: HandResult; mySessionId: stri
   return (
     <div
       className={
-        'pointer-events-none relative overflow-hidden rounded-2xl border bg-black/80 px-6 py-3 backdrop-blur-md animate-rise ' +
+        'pointer-events-none relative overflow-hidden rounded-xl border bg-black/80 px-4 py-2 backdrop-blur-md animate-rise ' +
         ringClass
       }
     >
       <div className={'pointer-events-none absolute inset-0 bg-gradient-to-b ' + glowClass} />
-      <div className="relative flex items-center gap-4">
+      <div className="relative flex items-center gap-3">
         <div className="flex flex-col">
-          <span className="text-[10px] font-bold uppercase tracking-[0.32em] text-ink-mute">
+          <span className="text-[9px] font-bold uppercase tracking-[0.28em] text-ink-mute">
             Round {r.round} · Dealer {r.dealerValue}
           </span>
-          <span className={'font-display text-3xl font-black leading-none sm:text-4xl ' + headlineClass}>
+          <span className={'font-display text-xl font-black leading-tight sm:text-2xl ' + headlineClass}>
             {headline}
           </span>
         </div>
         <div className="flex flex-col items-end">
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
+          <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-ink-mute">
             Net
           </span>
-          <span className={'font-display text-3xl font-black tabular-nums leading-none sm:text-4xl ' + deltaClass}>
+          <span className={'font-display text-xl font-black tabular-nums leading-tight sm:text-2xl ' + deltaClass}>
             {delta > 0 ? '+' : ''}
             {delta}
           </span>

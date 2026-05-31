@@ -17,6 +17,7 @@ import {
   type CrapsTableView,
 } from '../lib/store';
 import type { BetKind, RollResult } from '@shuffle/shared';
+import * as wallet from '../lib/wallet';
 import { C2S } from '@shuffle/shared';
 import { ChatPanel } from '../components/ChatPanel';
 import { RoomEvent, Track } from 'livekit-client';
@@ -32,6 +33,15 @@ export function Craps() {
   const pushToast = useStore((s) => s.pushToast);
   const [chip, setChip] = useState(25);
   const [lastResult, setLastResult] = useState<RollResult | null>(null);
+  // Big result ribbon over the felt — fades in after the dice land and out
+  // after a few seconds. Mirrors the Blackjack HandResultRibbon.
+  const [ribbonResult, setRibbonResult] = useState<RollResult | null>(null);
+  const ribbonTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ribbonHideRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (ribbonTimeoutRef.current) clearTimeout(ribbonTimeoutRef.current);
+    if (ribbonHideRef.current) clearTimeout(ribbonHideRef.current);
+  }, []);
 
   // Mirror server state.
   useEffect(() => {
@@ -52,16 +62,25 @@ export function Craps() {
     });
     room.onMessage('rollResult', (r: RollResult) => {
       setLastResult(r);
-      const mine = r.perSeat.find((p) => {
-        const seat = (room.state as ServerCrapsSchema).seats?.find((s) => s.index === p.seatIndex);
-        return seat?.playerId === mySessionId;
-      });
-      if (mine) {
-        if (mine.delta > 0) pushToast({ kind: 'win', text: `+${mine.delta} chips` });
-        if (mine.delta < 0) pushToast({ kind: 'lose', text: `${mine.delta} chips` });
+      // Show the big ribbon AFTER the 1.2s dice tumble lands, so the
+      // headline matches what the dice show. Same vibe as Blackjack's
+      // HandResultRibbon — auto-dismissed after a short window.
+      if (ribbonTimeoutRef.current) clearTimeout(ribbonTimeoutRef.current);
+      if (ribbonHideRef.current) clearTimeout(ribbonHideRef.current);
+      ribbonTimeoutRef.current = setTimeout(() => setRibbonResult(r), 1200);
+      ribbonHideRef.current = setTimeout(() => setRibbonResult(null), 1200 + 3200);
+
+      // Persist my P&L into the cross-session wallet — same path Blackjack
+      // uses, so the lifetime stats line counts every game.
+      const mySeatIndex = (room.state as ServerCrapsSchema).seats?.find(
+        (s) => s.playerId === mySessionId,
+      )?.index;
+      if (mySeatIndex !== undefined) {
+        const mine = r.perSeat.find((p) => p.seatIndex === mySeatIndex);
+        if (mine && mine.delta !== 0) {
+          wallet.recordSwing({ profit: mine.delta });
+        }
       }
-      if (r.sevenOut) pushToast({ kind: 'info', text: 'Seven out — new shooter up.' });
-      if (r.pointMade) pushToast({ kind: 'win', text: 'Point made!' });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room]);
@@ -244,6 +263,7 @@ export function Craps() {
         chip={chip}
         setChip={setChip}
         lastResult={lastResult}
+        ribbonResult={ribbonResult}
       />
 
       {!mySeat && (
@@ -296,6 +316,7 @@ function CrapsFelt({
   chip,
   setChip,
   lastResult,
+  ribbonResult,
 }: {
   table: CrapsTableView;
   mySeat: CrapsSeatView | null;
@@ -304,6 +325,7 @@ function CrapsFelt({
   chip: number;
   setChip: (n: number) => void;
   lastResult: RollResult | null;
+  ribbonResult: RollResult | null;
 }) {
   const myBets = useMemo(
     () => table.bets.filter((b) => mySeat && b.seatIndex === mySeat.index),
@@ -346,6 +368,14 @@ function CrapsFelt({
       {/* Polished oak rail around the entire layout — that warm wood frame
        *  every real Vegas craps table has. */}
       <CrapsRail />
+
+      {/* Win/lose ribbon — mirrors the Blackjack settling banner. Fades in
+       *  after the dice land and disappears a few seconds later. */}
+      {ribbonResult && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center px-3">
+          <CrapsResultRibbon r={ribbonResult} mySessionId={mySessionId} />
+        </div>
+      )}
 
       {/* Top status row — dice, point puck, shooter */}
       <div className="relative z-10 flex flex-wrap items-start justify-between gap-3 px-2 sm:px-4">
@@ -509,6 +539,87 @@ function CrapsActionBar({
 
 // The rail — a polished wood ring around the entire layout. Inside is the
 // felt, outside is the cushioned rim where chips would sit.
+// Big result ribbon for Craps — matches the Blackjack HandResultRibbon
+// shape (mood-coloured ring + headline + signed delta). The eyebrow trades
+// "Round N · Dealer X" for "Roll #N · total (a+b)", and seven-out /
+// point-made get their own celebratory headlines for non-betting players.
+function CrapsResultRibbon({
+  r,
+  mySessionId,
+}: {
+  r: RollResult;
+  mySessionId: string | null;
+}) {
+  // Find my delta by walking back through the room snapshot in store.
+  const table = useStore((s) => s.crapsTable);
+  const mySeatIndex = table?.seats.find((s) => s.playerId === mySessionId)?.index ?? -1;
+  const mine = r.perSeat.find((p) => p.seatIndex === mySeatIndex);
+  const delta = mine?.delta ?? 0;
+  const mood: 'win' | 'lose' | 'push' =
+    delta > 0 ? 'win' : delta < 0 ? 'lose' : 'push';
+  const headline =
+    delta > 0
+      ? r.pointMade
+        ? 'Point made!'
+        : 'You won'
+      : delta < 0
+      ? r.sevenOut
+        ? 'Seven out'
+        : 'You lost'
+      : r.pointMade
+      ? 'Point made!'
+      : r.sevenOut
+      ? 'Seven out'
+      : 'No action';
+  const ringClass =
+    mood === 'win'
+      ? 'border-win/70 shadow-[0_0_60px_-10px_rgba(63,190,147,.7)]'
+      : mood === 'lose'
+      ? 'border-fold/70 shadow-[0_0_60px_-10px_rgba(255,124,150,.6)]'
+      : 'border-amber/55 shadow-[0_0_60px_-12px_rgba(255,177,78,.45)]';
+  const glowClass =
+    mood === 'win'
+      ? 'from-win/35 via-win/10 to-transparent'
+      : mood === 'lose'
+      ? 'from-fold/30 via-fold/10 to-transparent'
+      : 'from-amber/25 via-amber/8 to-transparent';
+  const headlineClass =
+    mood === 'win' ? 'text-win' : mood === 'lose' ? 'text-[#FF9DAC]' : 'text-amber';
+  const deltaClass =
+    delta > 0 ? 'text-win' : delta < 0 ? 'text-[#FF9DAC]' : 'text-amber';
+  return (
+    <div
+      className={
+        'pointer-events-none relative overflow-hidden rounded-xl border bg-black/80 px-4 py-2 backdrop-blur-md animate-rise ' +
+        ringClass
+      }
+    >
+      <div className={'pointer-events-none absolute inset-0 bg-gradient-to-b ' + glowClass} />
+      <div className="relative flex items-center gap-3">
+        <div className="flex flex-col">
+          <span className="text-[9px] font-bold uppercase tracking-[0.28em] text-ink-mute">
+            Roll #{r.rollNumber} · {r.roll.total} ({r.roll.a}+{r.roll.b})
+          </span>
+          <span className={'font-display text-xl font-black leading-tight sm:text-2xl ' + headlineClass}>
+            {headline}
+          </span>
+        </div>
+        {mine && (
+          <div className="flex flex-col items-end">
+            <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-ink-mute">
+              Net
+            </span>
+            <span className={'font-display text-xl font-black tabular-nums leading-tight sm:text-2xl ' + deltaClass}>
+              {delta > 0 ? '+' : ''}
+              {delta}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CrapsRail() {
   return (
     <div

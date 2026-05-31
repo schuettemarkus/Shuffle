@@ -1,0 +1,16 @@
+{
+  "lobby-wmut": [
+    {
+      "identityId": "dae144be-ecb0-43b7-9eb7-1851345f3b4b",
+      "displayName": "Schuette",
+      "chipDelta": 45,
+      "handsPlayed": 1,
+      "blackjackHands": 0,
+      "holdemHands": 0,
+      "crapsRolls": 1,
+      "biggestWin": 45,
+      "biggestLoss": 0,
+      "lastSeenAt": 1780239034970
+    }
+  ]
+}

@@ -66,8 +66,13 @@ export function Lobby() {
     let cancelled = false;
     (async () => {
       try {
+        // Pull a previously-saved name for this lobbyId so a refresh keeps
+        // "Skoville" instead of resetting to unnamed when the server room
+        // had to be recreated.
+        const savedName = readLobbyName(currentLobbyId);
         room = await joinLobby({
           lobbyId: currentLobbyId,
+          lobbyName: savedName || undefined,
           identityId: myIdentityId,
           displayName: myDisplayName || 'Guest',
         });
@@ -89,6 +94,12 @@ export function Lobby() {
           setTables(Array.from(t.tables.values()).map((r) => ({ ...r })));
           setPlayersOnline(t.playersOnline ?? 0);
           setLobbyName(t.name ?? '');
+          // Mirror the server's authoritative name into localStorage so a
+          // refresh / cold reconnect still has the name available even when
+          // the server room is created fresh. Also remember this lobby in
+          // the known-lobbies list so the lobby toggle menu can switch.
+          if (t.name) writeLobbyName(currentLobbyId, t.name);
+          rememberLobby(currentLobbyId, t.name ?? readLobbyName(currentLobbyId) ?? '');
           if (t.hostId !== undefined) setLobbyHostId(t.hostId);
           if (t.leaderboard) {
             setLeaderboard(
@@ -132,11 +143,19 @@ export function Lobby() {
   const renameLobby = (name: string) => {
     const trimmed = name.trim().slice(0, 40);
     if (!trimmed) return;
-    // Optimistic update so the UI doesn't flash the old name between click
-    // and the server broadcast. The next state sync confirms (or, if the
-    // server rejects, corrects) the value.
     setLobbyName(trimmed);
+    writeLobbyName(currentLobbyId, trimmed);
     lobbyRoomRef.current?.send(C2S.lobbySetName, { name: trimmed });
+  };
+
+  // Fork a new lobby with a fresh slug — separates this friend group from
+  // any other group the user runs. Reuses identity + display name; lands
+  // them in an empty unnamed lobby ready for a new invite.
+  const newLobby = () => {
+    const slug = newLobbySlug(myDisplayName || 'lobby');
+    const url = new URL(window.location.href);
+    url.searchParams.set('lobby', slug);
+    window.location.href = url.toString();
   };
 
   const enterTable = async (row: LobbyTableRow) => {
@@ -192,11 +211,8 @@ export function Lobby() {
         onInvite={() => setShareOpen(true)}
         onRename={renameLobby}
         onScroll={scrollToTables}
+        onNewLobby={newLobby}
       />
-
-      {leaderboard.length > 0 && (
-        <Leaderboard rows={leaderboard} myIdentityId={myIdentityId} />
-      )}
 
       <div
         ref={tablesRef}
@@ -217,6 +233,10 @@ export function Lobby() {
           />
         ))}
       </div>
+
+      {leaderboard.length > 0 && (
+        <Leaderboard rows={leaderboard} myIdentityId={myIdentityId} />
+      )}
 
       <footer className="mt-12 text-center text-[10px] uppercase tracking-[0.32em] text-ink-mute/70">
         play-money · social only
@@ -242,6 +262,7 @@ function Hero({
   onInvite,
   onRename,
   onScroll,
+  onNewLobby,
 }: {
   name: string;
   playersOnline: number;
@@ -250,7 +271,9 @@ function Hero({
   onInvite: () => void;
   onRename: (n: string) => void;
   onScroll: () => void;
+  onNewLobby: () => void;
 }) {
+  void playersOnline;
   return (
     <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-[#1A1422] via-[#211A2B] to-[#0F0915] px-6 py-10 shadow-brand sm:px-12 sm:py-14">
       {/* Sunset wash behind the wordmark. */}
@@ -273,8 +296,8 @@ function Hero({
             playersOnline={playersOnline}
           />
           <p className="mt-3 max-w-2xl text-lg text-ink-soft sm:text-xl">
-            It's <span className="text-amber">golden hour</span> somewhere — live
-            faces, talk smack, lose nothing but time.
+            It's <span className="text-amber">golden hour</span> somewhere —
+            friends on camera, chips on the felt, bragging rights on the line.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <button
@@ -283,6 +306,7 @@ function Hero({
             >
               {lobbyName ? `Invite friends to ${lobbyName} →` : 'Invite friends →'}
             </button>
+            <LobbyMenuButton onNewLobby={onNewLobby} />
           </div>
         </div>
 
@@ -402,6 +426,155 @@ function LobbyNameBar({
   );
 }
 
+interface KnownLobby {
+  id: string;
+  name: string;
+  lastSeen: number;
+}
+
+const KNOWN_LOBBIES_KEY = 'shuffle:known-lobbies';
+
+function readKnownLobbies(): KnownLobby[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(KNOWN_LOBBIES_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as KnownLobby[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberLobby(id: string, name: string) {
+  if (!id || typeof window === 'undefined') return;
+  try {
+    const list = readKnownLobbies();
+    const existing = list.find((l) => l.id === id);
+    if (existing) {
+      existing.name = name || existing.name;
+      existing.lastSeen = Date.now();
+    } else {
+      list.push({ id, name: name || 'Untitled lobby', lastSeen: Date.now() });
+    }
+    localStorage.setItem(KNOWN_LOBBIES_KEY, JSON.stringify(list.slice(-20)));
+  } catch {
+    /* ignore */
+  }
+}
+
+// localStorage helpers for cross-refresh lobby name persistence + slug minting.
+const LOBBY_NAME_KEY = 'shuffle:lobby-name:';
+
+function readLobbyName(lobbyId: string): string {
+  if (!lobbyId || typeof window === 'undefined') return '';
+  try {
+    return localStorage.getItem(LOBBY_NAME_KEY + lobbyId) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeLobbyName(lobbyId: string, name: string) {
+  if (!lobbyId || typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(LOBBY_NAME_KEY + lobbyId, name);
+  } catch {
+    /* ignore */
+  }
+}
+
+function newLobbySlug(displayName: string): string {
+  const first = (displayName ?? '').trim().split(/\s+/)[0] ?? '';
+  const slug = first
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 16);
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return slug ? `${slug}-${suffix}` : `lobby-${suffix}`;
+}
+
+// Combined "+ New lobby" / lobby switcher. If the user has visited more than
+// one lobby on this device, the button becomes a dropdown listing each known
+// lobby with a "+ New lobby" option at the bottom.
+function LobbyMenuButton({ onNewLobby }: { onNewLobby: () => void }) {
+  const currentLobbyId = useStore((s) => s.currentLobbyId);
+  const [open, setOpen] = useState(false);
+  const [lobbies, setLobbies] = useState<KnownLobby[]>(() => readKnownLobbies());
+  useEffect(() => {
+    if (open) setLobbies(readKnownLobbies());
+  }, [open]);
+  const otherLobbies = lobbies.filter((l) => l.id !== currentLobbyId);
+  const hasOthers = otherLobbies.length > 0;
+  const switchTo = (id: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('lobby', id);
+    window.location.href = url.toString();
+  };
+  if (!hasOthers) {
+    return (
+      <button
+        onClick={onNewLobby}
+        className="rounded-full border border-white/15 bg-black/30 px-4 py-3 text-sm font-bold uppercase tracking-[0.18em] text-ink-soft transition hover:border-amber/45 hover:text-amber"
+      >
+        + New lobby
+      </button>
+    );
+  }
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-full border border-white/15 bg-black/30 px-4 py-3 text-sm font-bold uppercase tracking-[0.18em] text-ink-soft transition hover:border-amber/45 hover:text-amber"
+      >
+        Switch lobby ▾
+      </button>
+      {open && (
+        <>
+          <button
+            onClick={() => setOpen(false)}
+            aria-label="Close menu"
+            className="fixed inset-0 z-20 cursor-default bg-transparent"
+          />
+          <div className="absolute left-0 top-full z-30 mt-2 min-w-[220px] overflow-hidden rounded-2xl border border-border-hi bg-surface shadow-brand">
+            <ul className="max-h-64 overflow-y-auto py-1">
+              {otherLobbies
+                .slice()
+                .sort((a, b) => b.lastSeen - a.lastSeen)
+                .map((l) => (
+                  <li key={l.id}>
+                    <button
+                      onClick={() => switchTo(l.id)}
+                      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-ink hover:bg-amber/10"
+                    >
+                      <span className="truncate font-display font-bold">
+                        {l.name || 'Untitled lobby'}
+                      </span>
+                      <span className="text-[10px] uppercase tracking-wider text-ink-mute">
+                        Switch
+                      </span>
+                    </button>
+                  </li>
+                ))}
+            </ul>
+            <button
+              onClick={() => {
+                setOpen(false);
+                onNewLobby();
+              }}
+              className="block w-full border-t border-white/10 px-3 py-2.5 text-left text-sm font-bold text-sunset hover:bg-sunset/10"
+            >
+              + New lobby
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Leaderboard({
   rows,
   myIdentityId,
@@ -410,6 +583,15 @@ function Leaderboard({
   myIdentityId: string;
 }) {
   const top = rows[0];
+  const totalHands = rows.reduce((sum, r) => sum + r.handsPlayed, 0);
+  const biggestEver = rows.reduce(
+    (m, r) => (r.biggestWin > m.win ? { ...m, win: r.biggestWin, name: r.displayName } : m),
+    { win: 0, name: '' },
+  );
+  const biggestBust = rows.reduce(
+    (m, r) => (r.biggestLoss < m.loss ? { ...m, loss: r.biggestLoss, name: r.displayName } : m),
+    { loss: 0, name: '' },
+  );
   return (
     <section className="mt-10 rounded-[24px] border border-amber/35 bg-gradient-to-br from-[#1A1422]/85 to-[#211A2B]/85 px-5 py-5 shadow-brand backdrop-blur sm:mt-14 sm:px-8 sm:py-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -427,7 +609,34 @@ function Leaderboard({
           Lifetime · across every game in this lobby
         </p>
       </div>
+
+      {/* Headline stat strip across the top. */}
+      <div className="mt-4 grid grid-cols-3 gap-2 sm:gap-3">
+        <StatCard label="Hands played" value={totalHands.toLocaleString()} />
+        <StatCard
+          label="Biggest hand"
+          value={biggestEver.win > 0 ? `+${biggestEver.win.toLocaleString()}` : '—'}
+          sub={biggestEver.name || undefined}
+          tone="win"
+        />
+        <StatCard
+          label="Worst beat"
+          value={biggestBust.loss < 0 ? biggestBust.loss.toLocaleString() : '—'}
+          sub={biggestBust.name || undefined}
+          tone="lose"
+        />
+      </div>
+
       <ol className="mt-4 flex flex-col gap-1.5">
+        {/* Column legend */}
+        <li className="grid grid-cols-[2.25rem_minmax(0,1fr)_3.5rem_4.5rem_4.5rem_5rem] items-center gap-2 px-3 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-ink-mute/80 sm:gap-3">
+          <span>#</span>
+          <span>Player</span>
+          <span className="text-right">Hands</span>
+          <span className="text-right">Best</span>
+          <span className="text-right">Worst</span>
+          <span className="text-right">Net</span>
+        </li>
         {rows.map((row, i) => {
           const isMine = row.identityId === myIdentityId;
           const tone =
@@ -436,14 +645,14 @@ function Leaderboard({
             <li
               key={row.identityId || i}
               className={
-                'flex items-center gap-3 rounded-xl px-3 py-2 ' +
+                'grid grid-cols-[2.25rem_minmax(0,1fr)_3.5rem_4.5rem_4.5rem_5rem] items-center gap-2 rounded-xl px-3 py-2 sm:gap-3 ' +
                 (isMine ? 'border border-sunset/45 bg-sunset/10' : 'bg-black/25')
               }
             >
-              <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-amber/15 font-display text-sm font-bold text-amber">
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-amber/15 font-display text-sm font-bold text-amber">
                 {i + 1}
               </span>
-              <span className="flex-1 truncate text-sm font-bold text-ink">
+              <span className="truncate text-sm font-bold text-ink">
                 {row.displayName || 'Guest'}
                 {isMine && (
                   <span className="ml-1.5 rounded-full bg-sunset/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-sunset">
@@ -451,8 +660,16 @@ function Leaderboard({
                   </span>
                 )}
               </span>
-              <span className="text-[10px] text-ink-mute">{row.handsPlayed}h</span>
-              <span className={'font-display text-base font-bold tabular-nums ' + tone}>
+              <span className="text-right text-[11px] tabular-nums text-ink-soft">
+                {row.handsPlayed}
+              </span>
+              <span className="text-right text-[11px] tabular-nums text-win">
+                {row.biggestWin > 0 ? `+${row.biggestWin.toLocaleString()}` : '—'}
+              </span>
+              <span className="text-right text-[11px] tabular-nums text-fold">
+                {row.biggestLoss < 0 ? row.biggestLoss.toLocaleString() : '—'}
+              </span>
+              <span className={'text-right font-display text-base font-bold tabular-nums ' + tone}>
                 {row.chipDelta > 0 ? '+' : ''}
                 {row.chipDelta.toLocaleString()}
               </span>
@@ -461,6 +678,34 @@ function Leaderboard({
         })}
       </ol>
     </section>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: 'win' | 'lose';
+}) {
+  const valueTone =
+    tone === 'win' ? 'text-win' : tone === 'lose' ? 'text-fold' : 'text-ink';
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/35 px-3 py-2">
+      <p className="text-[9px] font-bold uppercase tracking-[0.22em] text-ink-mute">
+        {label}
+      </p>
+      <p className={'mt-0.5 font-display text-base font-black tabular-nums sm:text-lg ' + valueTone}>
+        {value}
+      </p>
+      {sub && (
+        <p className="truncate text-[10px] text-ink-soft">{sub}</p>
+      )}
+    </div>
   );
 }
 

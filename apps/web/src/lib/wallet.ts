@@ -109,6 +109,25 @@ export function recordHand(
   write(cur, id);
 }
 
+// Game-agnostic record path for Craps + Hold'em. Mirrors recordHand but
+// without the blackjack-specific counters — just bumps the running net,
+// the win/loss tally, and tracks the biggest single swing.
+export function recordSwing(
+  delta: { profit: number; won?: boolean; lost?: boolean },
+  id?: string,
+) {
+  if (delta.profit === 0) return; // skip no-ops (pushes / dust rolls)
+  const cur = read(id);
+  const s = cur.stats;
+  s.handsPlayed += 1;
+  if (delta.won ?? delta.profit > 0) s.handsWon += 1;
+  if (delta.lost ?? delta.profit < 0) s.handsLost += 1;
+  s.netProfit += delta.profit;
+  if (delta.profit > s.biggestWin) s.biggestWin = delta.profit;
+  if (delta.profit < s.biggestLoss) s.biggestLoss = delta.profit;
+  write(cur, id);
+}
+
 export function resetWallet(id?: string) {
   write({ chips: DEFAULT_CHIPS, stats: emptyStats() }, id);
 }
