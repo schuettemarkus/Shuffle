@@ -331,7 +331,10 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       className={
-        'tap-target rounded-2xl px-3 py-3 text-sm font-bold uppercase tracking-wider transition hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0 ' +
+        // Tight padding + normal tracking + truncate so longer labels like
+        // "Surrender" / "Double" don't bleed past the button in the 5-column
+        // grid. Min-w-0 lets the truncate kick in on narrow containers.
+        'tap-target min-w-0 truncate rounded-2xl px-2 py-2.5 text-[13px] font-bold uppercase tracking-normal transition hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0 sm:text-sm ' +
         cls
       }
     >

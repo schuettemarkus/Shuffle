@@ -6,12 +6,13 @@
 // the name is broadcast to everyone in the same lobby.
 
 import { Room, Client } from '@colyseus/core';
-import { Schema, type, MapSchema } from '@colyseus/schema';
+import { Schema, type, MapSchema, ArraySchema } from '@colyseus/schema';
 import { ROOMS, C2S, S2C, type ChatMessage } from '@shuffle/shared';
 import { nanoid } from 'nanoid';
 import { lobbyBus, allStatuses, type TableStatus } from '../lobbyRegistry.js';
 import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
 import { allow } from '../throttle.js';
+import { leaderboardBus, top as leaderboardTop } from '../leaderboard.js';
 
 const SYSTEM_SENDER = '__system__';
 
@@ -28,12 +29,23 @@ class LobbyTableSchema extends Schema {
   @type('string') heatState = 'cold';
 }
 
+class LeaderboardSchema extends Schema {
+  @type('string') identityId = '';
+  @type('string') displayName = '';
+  @type('number') chipDelta = 0;
+  @type('number') handsPlayed = 0;
+  @type('number') biggestWin = 0;
+  @type('number') biggestLoss = 0;
+}
+
 class LobbyState extends Schema {
   @type('string') lobbyId = '';
   @type('string') name = '';
   @type('string') hostId = '';
   @type({ map: LobbyTableSchema }) tables = new MapSchema<LobbyTableSchema>();
   @type('number') playersOnline = 0;
+  // Top 5 lifetime chip earners in this lobby, sorted desc.
+  @type({ array: LeaderboardSchema }) leaderboard = new ArraySchema<LeaderboardSchema>();
 }
 
 interface LobbyJoinOptions {
@@ -49,6 +61,10 @@ export class LobbyRoom extends Room<LobbyState> {
   private onChat = (e: ChatEvent) => {
     if (e.lobbyId !== this.lobbyId) return;
     this.broadcast(S2C.chat, e.msg);
+  };
+  private onLeaderboardChange = (e: { lobbyId: string }) => {
+    if (e.lobbyId !== this.lobbyId) return;
+    this.refreshLeaderboard();
   };
 
   override onCreate(options: LobbyJoinOptions = {}) {
@@ -111,11 +127,29 @@ export class LobbyRoom extends Room<LobbyState> {
       postChat(this.lobbyId, msg);
     });
     chatBus.on('message', this.onChat);
+    leaderboardBus.on('change', this.onLeaderboardChange);
+    this.refreshLeaderboard();
   }
 
   override onDispose() {
     lobbyBus.off('change', this.onRegistryChange);
     chatBus.off('message', this.onChat);
+    leaderboardBus.off('change', this.onLeaderboardChange);
+  }
+
+  private refreshLeaderboard() {
+    const next = leaderboardTop(this.lobbyId, 5);
+    this.state.leaderboard.clear();
+    for (const e of next) {
+      const row = new LeaderboardSchema();
+      row.identityId = e.identityId;
+      row.displayName = e.displayName;
+      row.chipDelta = e.chipDelta;
+      row.handsPlayed = e.handsPlayed;
+      row.biggestWin = e.biggestWin;
+      row.biggestLoss = e.biggestLoss;
+      this.state.leaderboard.push(row);
+    }
   }
 
   override onJoin(client: Client, opts: LobbyJoinOptions = {}) {

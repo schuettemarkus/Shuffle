@@ -49,6 +49,7 @@ import * as wallet from '../wallet.js';
 import { publishStatus } from '../lobbyRegistry.js';
 import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
 import { allow } from '../throttle.js';
+import { record as recordLeaderboard } from '../leaderboard.js';
 import type { Card } from '@shuffle/shared';
 
 const MAX_SEATS = 6;
@@ -227,6 +228,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     // we pull from the bus instead of a per-room buffer.
     for (const msg of getChatHistory(this.lobbyId)) client.send(S2C.chat, msg);
     client.send(S2C.handHistory, this.handLog);
+    this.refreshSpectatorCount();
   }
 
   override async onLeave(client: Client, consented: boolean) {
@@ -252,11 +254,18 @@ export class BlackjackRoom extends Room<BlackjackState> {
     } catch {
       this.releaseSeat(seat, /*cashOut*/ true);
     }
+    this.refreshSpectatorCount();
   }
 
   override onDispose() {
     if (this.tick) clearInterval(this.tick);
     chatBus.off('message', this.onChat);
+  }
+
+  // Spectators = total connected clients minus seated players.
+  private refreshSpectatorCount() {
+    const seated = this.state.seats.filter((s) => s.phase !== 'empty').length;
+    this.state.spectators = Math.max(0, this.clients.length - seated);
   }
 
   private isHost(client: Client): boolean {
@@ -331,6 +340,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     seat.biggestWin = 0;
     seat.biggestLoss = 0;
     this.refreshVibes();
+    this.refreshSpectatorCount();
     // First sit at the table → first dealer button.
     if (this.state.dealerButtonSeat < 0) {
       this.state.dealerButtonSeat = seat.index;
@@ -647,6 +657,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
     if (this.state.dealerButtonSeat === seat.index) {
       this.state.dealerButtonSeat = this.nextNonEmptySeatIndex(seat.index);
     }
+    this.refreshSpectatorCount();
   }
 
   private clearSplit(seat: SeatSchema) {
@@ -945,6 +956,7 @@ export class BlackjackRoom extends Room<BlackjackState> {
       s.netProfit = s.stack - (s.buyIn || updated.startingStack);
       if (handTotal > s.biggestWin) s.biggestWin = handTotal;
       if (handTotal < s.biggestLoss) s.biggestLoss = handTotal;
+      recordLeaderboard(this.lobbyId, s.identityId, s.displayName, 'blackjack', handTotal);
 
       s.bet = 0;
       // Reset the side-bet record so the next betting window starts blank.

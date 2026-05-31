@@ -3,6 +3,7 @@
 // host knows what their share will look like.
 
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
+import { getHttpBase } from '../lib/colyseus';
 
 interface Props {
   lobbyName: string;
@@ -105,9 +106,25 @@ export function ShareInvitePanel({ lobbyName, lobbyId, seatsOpen, onClose }: Pro
             )}
           </p>
 
-          {/* Beautiful preview card — exactly what their friends will see. */}
+          {/* Beautiful preview card — exactly what their friends will see.
+           *  We render BOTH: a server-generated SVG (player avatars baked in,
+           *  reflects the current lobby roster) on top, with the inline
+           *  fallback hidden underneath. The inline ref is still used as the
+           *  source for native-share file attachment. */}
           <div className="mt-5 overflow-hidden rounded-2xl border border-white/10 shadow-[0_18px_40px_-18px_rgba(0,0,0,.65)]">
-            <InvitePreviewCard ref={previewRef} lobbyName={lobbyName || 'Lobby'} />
+            <img
+              src={`${getHttpBase()}/og.svg?lobby=${encodeURIComponent(lobbyId)}&t=${Math.floor(Date.now() / 60_000)}`}
+              alt={`Invite preview for ${lobbyName || 'this lobby'}`}
+              className="block h-full w-full"
+              style={{ aspectRatio: '1200 / 630' }}
+              onError={(e) => {
+                // Fallback to the inline SVG if the dynamic endpoint is down.
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <div className="hidden">
+              <InvitePreviewCard ref={previewRef} lobbyName={lobbyName || 'Lobby'} />
+            </div>
           </div>
 
           <div className="mt-4">

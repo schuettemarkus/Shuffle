@@ -36,6 +36,7 @@ import { buildSidePots, type Contribution } from '../holdem/sidepots.js';
 import { publishStatus } from '../lobbyRegistry.js';
 import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
 import { allow } from '../throttle.js';
+import { record as recordLeaderboard } from '../leaderboard.js';
 
 const TICK_MS = 100;
 const HAND_HISTORY = 10;
@@ -688,6 +689,7 @@ export class HoldemRoom extends Room<HoldemState> {
       s.handsPlayed += 1;
       if (delta > 0) s.handsWon += 1;
       s.netProfit = s.stack - s.buyIn;
+      recordLeaderboard(this.lobbyId, s.identityId, s.displayName, 'holdem', delta);
       recordSeats.push({
         seatIndex: s.index,
         name: s.displayName,
@@ -741,6 +743,7 @@ export class HoldemRoom extends Room<HoldemState> {
       const delta = s.stack - (handStart.get(s.index) ?? 0);
       perSeat.push({ seatIndex: s.index, playerId: s.playerId, delta });
       if (s.phase !== 'inHand' && s.phase !== 'allIn' && s.totalCommitted > 0) s.handsPlayed += 1;
+      recordLeaderboard(this.lobbyId, s.identityId, s.displayName, 'holdem', delta);
       recordSeats.push({
         seatIndex: s.index,
         name: s.displayName,

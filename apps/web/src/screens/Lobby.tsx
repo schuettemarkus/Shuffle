@@ -25,6 +25,15 @@ interface LobbyTableRow {
   heatState: string;
 }
 
+interface LeaderboardRow {
+  identityId: string;
+  displayName: string;
+  chipDelta: number;
+  handsPlayed: number;
+  biggestWin: number;
+  biggestLoss: number;
+}
+
 export function Lobby() {
   const myDisplayName = useStore((s) => s.myDisplayName);
   const myIdentityId = useStore((s) => s.myIdentityId);
@@ -43,6 +52,7 @@ export function Lobby() {
   const [joining, setJoining] = useState<string | null>(null);
   const [playersOnline, setPlayersOnline] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
   const tablesRef = useRef<HTMLDivElement>(null);
   // The connected lobby room — kept in a ref so the rename handler can send
   // a server message without re-subscribing on every render.
@@ -74,11 +84,24 @@ export function Lobby() {
             playersOnline?: number;
             name?: string;
             hostId?: string;
+            leaderboard?: Iterable<LeaderboardRow>;
           };
           setTables(Array.from(t.tables.values()).map((r) => ({ ...r })));
           setPlayersOnline(t.playersOnline ?? 0);
           setLobbyName(t.name ?? '');
           if (t.hostId !== undefined) setLobbyHostId(t.hostId);
+          if (t.leaderboard) {
+            setLeaderboard(
+              Array.from(t.leaderboard).map((row) => ({
+                identityId: row.identityId,
+                displayName: row.displayName,
+                chipDelta: row.chipDelta,
+                handsPlayed: row.handsPlayed,
+                biggestWin: row.biggestWin,
+                biggestLoss: row.biggestLoss,
+              })),
+            );
+          }
         };
         room.onStateChange(sync);
         sync();
@@ -170,6 +193,10 @@ export function Lobby() {
         onRename={renameLobby}
         onScroll={scrollToTables}
       />
+
+      {leaderboard.length > 0 && (
+        <Leaderboard rows={leaderboard} myIdentityId={myIdentityId} />
+      )}
 
       <div
         ref={tablesRef}
@@ -372,6 +399,68 @@ function LobbyNameBar({
         {playersOnline} {playersOnline === 1 ? 'player' : 'players'}
       </span>
     </div>
+  );
+}
+
+function Leaderboard({
+  rows,
+  myIdentityId,
+}: {
+  rows: LeaderboardRow[];
+  myIdentityId: string;
+}) {
+  const top = rows[0];
+  return (
+    <section className="mt-10 rounded-[24px] border border-amber/35 bg-gradient-to-br from-[#1A1422]/85 to-[#211A2B]/85 px-5 py-5 shadow-brand backdrop-blur sm:mt-14 sm:px-8 sm:py-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.32em] text-amber">
+            Lobby leaderboard
+          </p>
+          <h2 className="mt-1 font-display text-xl font-bold leading-tight tracking-tight sm:text-2xl">
+            {top
+              ? `${top.displayName || 'Anonymous'} is up ${top.chipDelta.toLocaleString()}`
+              : 'Be the first to win a hand'}
+          </h2>
+        </div>
+        <p className="text-[10px] uppercase tracking-wider text-ink-mute">
+          Lifetime · across every game in this lobby
+        </p>
+      </div>
+      <ol className="mt-4 flex flex-col gap-1.5">
+        {rows.map((row, i) => {
+          const isMine = row.identityId === myIdentityId;
+          const tone =
+            row.chipDelta > 0 ? 'text-win' : row.chipDelta < 0 ? 'text-fold' : 'text-ink-mute';
+          return (
+            <li
+              key={row.identityId || i}
+              className={
+                'flex items-center gap-3 rounded-xl px-3 py-2 ' +
+                (isMine ? 'border border-sunset/45 bg-sunset/10' : 'bg-black/25')
+              }
+            >
+              <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-amber/15 font-display text-sm font-bold text-amber">
+                {i + 1}
+              </span>
+              <span className="flex-1 truncate text-sm font-bold text-ink">
+                {row.displayName || 'Guest'}
+                {isMine && (
+                  <span className="ml-1.5 rounded-full bg-sunset/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-sunset">
+                    You
+                  </span>
+                )}
+              </span>
+              <span className="text-[10px] text-ink-mute">{row.handsPlayed}h</span>
+              <span className={'font-display text-base font-bold tabular-nums ' + tone}>
+                {row.chipDelta > 0 ? '+' : ''}
+                {row.chipDelta.toLocaleString()}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

@@ -20,6 +20,12 @@ export function getClient(): Client {
   return client;
 }
 
+// HTTP base for hitting non-WebSocket Express routes (OG image, health, etc.).
+// `url` is a ws[s]:// URL; flip the scheme so an <img src=…> can fetch it.
+export function getHttpBase(): string {
+  return url.replace(/^wss/, 'https').replace(/^ws/, 'http');
+}
+
 // Each room is matched by `lobbyId` server-side via filterBy, so friend
 // groups get their own lobby + Blackjack + Craps instances per invite link.
 export async function joinLobby(opts: {

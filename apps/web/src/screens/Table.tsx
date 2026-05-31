@@ -394,6 +394,8 @@ export function Table() {
         </div>
       </header>
 
+      {!mySeat && <SpectatorBadge table={table} />}
+
       {/* The felt is the screen now — it carries the dealer, six seats with
        *  embedded webcam tiles, the pot, AND the action surface. */}
       <FeltSurface
@@ -765,6 +767,28 @@ function LocalPlayerHandColumn({
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// Lightweight "you're watching" affordance when the viewer hasn't bought
+// in. Reads spectator count from table.spectators (a snapshot of room
+// clients minus seated players, computed server-side).
+function SpectatorBadge({ table }: { table: TableView }) {
+  const others = Math.max(0, (table.spectators ?? 1) - 1);
+  return (
+    <div className="mx-auto -mt-1 flex w-fit items-center gap-2 rounded-full border border-amber/35 bg-black/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-amber backdrop-blur">
+      <span>👁 Watching</span>
+      {others > 0 && (
+        <>
+          <span className="text-white/30">·</span>
+          <span className="text-ink-soft">
+            {others} other{others === 1 ? '' : 's'} watching
+          </span>
+        </>
+      )}
+      <span className="text-white/30">·</span>
+      <span className="text-ink-soft">tap an empty seat to play</span>
     </div>
   );
 }
@@ -1259,6 +1283,7 @@ interface ServerSchema {
   deckCount: number;
   cardsDealt: number;
   runningCount: number;
+  spectators?: number;
 }
 
 function toCard(c: ServerSchemaCard): Card {
@@ -1345,6 +1370,7 @@ function toView(s: ServerSchema): TableView {
     deckCount: s.deckCount ?? 1,
     cardsDealt: s.cardsDealt ?? 0,
     runningCount: s.runningCount ?? 0,
+    spectators: s.spectators ?? undefined,
     dealer: {
       hand: dealerHand,
       handValue: dealer.handValue ?? 0,

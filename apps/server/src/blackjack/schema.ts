@@ -93,4 +93,6 @@ export class BlackjackState extends Schema {
   @type('number') deckCount = 1;
   @type('number') cardsDealt = 0;
   @type('number') runningCount = 0;
+  // Total clients connected to the room — spectators = this - seated count.
+  @type('number') spectators = 0;
 }

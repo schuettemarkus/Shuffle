@@ -32,6 +32,7 @@ import * as wallet from '../wallet.js';
 import { publishStatus } from '../lobbyRegistry.js';
 import { chatBus, getChatHistory, postChat, type ChatEvent } from '../chatBus.js';
 import { allow } from '../throttle.js';
+import { record as recordLeaderboard } from '../leaderboard.js';
 
 const MAX_SEATS = 8;
 const TICK_MS = 100;
@@ -409,7 +410,7 @@ export class CrapsRoom extends Room<CrapsState> {
       const s = this.state.seats[seatIndex];
       if (!s) continue;
       s.netProfit = s.stack - s.buyIn;
-      void delta;
+      recordLeaderboard(this.lobbyId, s.identityId, s.displayName, 'craps', delta);
     }
 
     // Phase transitions driven by the roll.

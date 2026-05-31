@@ -103,6 +103,7 @@ export interface TableView {
   deckCount: number;
   cardsDealt: number;
   runningCount: number;
+  spectators?: number;
 }
 
 export interface Toast {
