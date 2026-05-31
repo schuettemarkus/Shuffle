@@ -20,7 +20,11 @@ export function getClient(): Client {
   return client;
 }
 
+// Each room is matched by `lobbyId` server-side via filterBy, so friend
+// groups get their own lobby + Blackjack + Craps instances per invite link.
 export async function joinLobby(opts: {
+  lobbyId: string;
+  lobbyName?: string;
   identityId: string;
   displayName: string;
 }) {
@@ -28,8 +32,17 @@ export async function joinLobby(opts: {
 }
 
 export async function joinBlackjack(opts: {
+  lobbyId: string;
   identityId: string;
   displayName: string;
 }): Promise<Room> {
   return getClient().joinOrCreate(ROOMS.blackjack, opts);
+}
+
+export async function joinCraps(opts: {
+  lobbyId: string;
+  identityId: string;
+  displayName: string;
+}): Promise<Room> {
+  return getClient().joinOrCreate(ROOMS.craps, opts);
 }

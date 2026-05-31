@@ -60,12 +60,77 @@ export default {
           '60%': { opacity: '1', transform: 'translateY(-12px) scale(1)' },
           '100%': { opacity: '0', transform: 'translateY(-48px) scale(.9)' },
         },
+        flashWin: {
+          '0%': { background: 'rgba(63,190,147,0)', transform: 'scale(1)' },
+          '20%': { background: 'rgba(63,190,147,.28)', transform: 'scale(1.025)' },
+          '100%': { background: 'rgba(63,190,147,0)', transform: 'scale(1)' },
+        },
+        flashLose: {
+          '0%': { background: 'rgba(224,85,107,0)', transform: 'translateX(0)' },
+          '15%': { background: 'rgba(224,85,107,.22)', transform: 'translateX(-3px)' },
+          '30%': { transform: 'translateX(3px)' },
+          '50%': { transform: 'translateX(-2px)' },
+          '70%': { transform: 'translateX(0)' },
+          '100%': { background: 'rgba(224,85,107,0)' },
+        },
+        flashPush: {
+          '0%': { background: 'rgba(154,143,163,0)' },
+          '30%': { background: 'rgba(154,143,163,.18)' },
+          '100%': { background: 'rgba(154,143,163,0)' },
+        },
+        flashRibbon: {
+          '0%': { opacity: '0', transform: 'translateY(6px) scale(.85)' },
+          '20%': { opacity: '1', transform: 'translateY(-2px) scale(1.05)' },
+          '70%': { opacity: '1', transform: 'translateY(-6px) scale(1)' },
+          '100%': { opacity: '0', transform: 'translateY(-14px) scale(.95)' },
+        },
+        dealerSpin: {
+          '0%': { transform: 'rotate(-30deg) scale(.6)', opacity: '0' },
+          '60%': { transform: 'rotate(15deg) scale(1.12)', opacity: '1' },
+          '100%': { transform: 'rotate(0) scale(1)', opacity: '1' },
+        },
+        speakingPulse: {
+          '0%,100%': { transform: 'scale(1)' },
+          '50%': { transform: 'scale(1.015)' },
+        },
+        // Card deal — drops in from above with a slight rotation.
+        cardDeal: {
+          '0%': { opacity: '0', transform: 'translate(-30px,-60px) rotate(-14deg) scale(.85)' },
+          '60%': { opacity: '1', transform: 'translate(0,8px) rotate(2deg) scale(1.02)' },
+          '100%': { opacity: '1', transform: 'translate(0,0) rotate(0) scale(1)' },
+        },
+        // Dealer hole-card reveal — a 3D flip.
+        cardFlip: {
+          '0%': { transform: 'rotateY(180deg)' },
+          '100%': { transform: 'rotateY(0deg)' },
+        },
+        // Pot pulse when chips grow.
+        potPulse: {
+          '0%,100%': { transform: 'scale(1)', filter: 'brightness(1)' },
+          '50%': { transform: 'scale(1.06)', filter: 'brightness(1.15)' },
+        },
+        // Dice settle — used after the tumble keyframe.
+        diceLand: {
+          '0%': { transform: 'translateY(-12px) scale(1.08) rotate(2deg)' },
+          '60%': { transform: 'translateY(2px) scale(.96) rotate(-1deg)' },
+          '100%': { transform: 'translateY(0) scale(1) rotate(0)' },
+        },
       },
       animation: {
         rise: 'rise .7s ease-out forwards',
         flick: 'flick 1.6s infinite',
         pulseSunset: 'pulseSunset 1.6s ease-in-out infinite',
         reaction: 'reaction 1.8s ease-out forwards',
+        flashWin: 'flashWin 1.5s ease-out forwards',
+        flashLose: 'flashLose 1.4s ease-out forwards',
+        flashPush: 'flashPush 1.5s ease-out forwards',
+        flashRibbon: 'flashRibbon 1.6s ease-out forwards',
+        dealerSpin: 'dealerSpin .6s cubic-bezier(.34,1.56,.64,1) backwards',
+        speakingPulse: 'speakingPulse 1.4s ease-in-out infinite',
+        cardDeal: 'cardDeal .55s cubic-bezier(.34,1.56,.64,1) backwards',
+        cardFlip: 'cardFlip .55s cubic-bezier(.4,1.3,.5,1) both',
+        potPulse: 'potPulse .65s ease-out',
+        diceLand: 'diceLand .45s cubic-bezier(.34,1.6,.5,1) .55s backwards',
       },
     },
   },

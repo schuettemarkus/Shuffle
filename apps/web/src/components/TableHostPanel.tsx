@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import type { Room } from 'colyseus.js';
 import { C2S } from '@shuffle/shared';
-import type { TableView } from '../lib/store';
+import { useStore, type TableView } from '../lib/store';
 
 interface Props {
   room: Room;
@@ -21,14 +21,34 @@ export function TableHostPanel({ room, table, mySessionId }: Props) {
   const [paused, setPaused] = useState(table.phase === 'paused');
   // Keep local state aligned when the server confirms the change.
   if (paused !== (table.phase === 'paused')) setPaused(table.phase === 'paused');
+  // First-time-host coachmark — a pulsing "you're the host" hint until they
+  // open the controls once. Persisted to localStorage so it never bothers a
+  // returning host.
+  const coachmark = useStore((s) => s.hostCoachmark);
+  const setCoachmark = useStore((s) => s.setHostCoachmark);
 
   return (
     <div className="fixed right-3 top-14 z-30 sm:right-[348px] sm:top-4">
       <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-full border border-amber/50 bg-amber/15 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-amber backdrop-blur"
+        onClick={() => {
+          setOpen((v) => !v);
+          if (coachmark) setCoachmark(false);
+        }}
+        className={
+          'relative flex items-center gap-2 rounded-full border border-amber/50 bg-amber/15 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-amber backdrop-blur ' +
+          (coachmark ? 'animate-pulseSunset' : '')
+        }
       >
         ★ Host {open ? 'close' : 'controls'}
+        {coachmark && !open && (
+          <span className="pointer-events-none absolute -bottom-12 right-0 w-[min(82vw,260px)] rounded-xl border border-amber/40 bg-bg-2/95 px-3 py-2 text-left text-[11px] font-medium normal-case tracking-normal text-ink shadow-brand backdrop-blur">
+            <span className="text-amber">You're the host.</span>{' '}
+            <span className="text-ink-mute">
+              Set stakes, pause the table, or invite friends from here.
+            </span>
+            <span className="absolute -top-1.5 right-6 h-3 w-3 rotate-45 border-l border-t border-amber/40 bg-bg-2" />
+          </span>
+        )}
       </button>
 
       {open && (

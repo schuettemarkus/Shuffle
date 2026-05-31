@@ -7,6 +7,13 @@ export function Home() {
   const setIdentity = useStore((s) => s.setIdentity);
   const myIdentityId = useStore((s) => s.myIdentityId);
   const [name, setName] = useState('');
+  // If the user arrived via an invite URL, show them what they're walking
+  // into so the name-entry step doesn't feel like a tax. The param survives
+  // through App-level auto-join after we set the name.
+  const inviteTable =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('table')
+      : null;
 
   const submit = () => {
     const clean = name.trim().slice(0, 24);
@@ -19,13 +26,15 @@ export function Home() {
   return (
     <div className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-6 text-center">
       <p className="mb-4 text-xs font-semibold uppercase tracking-[0.34em] text-sunset opacity-90 animate-rise">
-        Brand & design direction
+        {inviteTable ? 'Someone saved you a chair' : 'Brand & design direction'}
       </p>
       <h1 className="wordmark text-[clamp(72px,16vw,160px)] leading-[.9] animate-rise">
         shuffle<span className="wordmark-dot">.</span>
       </h1>
       <p className="mt-4 max-w-md text-base text-ink-soft sm:text-lg animate-rise">
-        A warm corner of the internet where friends pull up a chair, deal a hand, and hang out — face to face.
+        {inviteTable
+          ? `You've been invited to a Blackjack table. Tell us your name and we'll walk you over.`
+          : `A warm corner of the internet where friends pull up a chair, deal a hand, and hang out — face to face.`}
       </p>
 
       <div className="mt-10 w-full rounded-brand border border-border bg-surface p-5 shadow-brand animate-rise">
@@ -48,7 +57,7 @@ export function Home() {
           disabled={!name.trim()}
           className="mt-4 w-full rounded-xl bg-gradient-to-br from-sunset-bright to-sunset px-4 py-3 text-base font-bold text-white shadow-sunset transition disabled:opacity-40"
         >
-          Pull up a chair →
+          {inviteTable ? 'Take my seat →' : 'Pull up a chair →'}
         </button>
         <p className="mt-3 text-xs text-ink-mute">
           Play-money & social only. Shuffle never deals in real money.

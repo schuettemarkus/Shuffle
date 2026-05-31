@@ -10,6 +10,7 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 import { monitor } from '@colyseus/monitor';
 import { LobbyRoom } from './rooms/LobbyRoom.js';
 import { BlackjackRoom } from './rooms/BlackjackRoom.js';
+import { CrapsRoom } from './rooms/CrapsRoom.js';
 import { ROOMS } from '@shuffle/shared';
 import { getLiveKitConfig, mintToken, VENUE_ROOM } from './livekit.js';
 
@@ -57,8 +58,11 @@ const gameServer = new Server({
   transport: new WebSocketTransport({ server: httpServer }),
 });
 
-gameServer.define(ROOMS.lobby, LobbyRoom);
-gameServer.define(ROOMS.blackjack, BlackjackRoom);
+// Every room is multi-instance and matched by `lobbyId`, so friend groups
+// get their own lobby + Blackjack + Craps instance per invite link.
+gameServer.define(ROOMS.lobby, LobbyRoom).filterBy(['lobbyId']);
+gameServer.define(ROOMS.blackjack, BlackjackRoom).filterBy(['lobbyId']);
+gameServer.define(ROOMS.craps, CrapsRoom).filterBy(['lobbyId']);
 
 await gameServer.listen(PORT);
 

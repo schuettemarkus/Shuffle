@@ -72,22 +72,25 @@ export function ChatPanel({ room, mySessionId }: Props) {
   }
 
   // ----------- panel (mobile overlay or desktop dock) -----------
-  const desktopChrome =
-    'sm:right-4 sm:top-20 sm:bottom-4 sm:w-80 sm:rounded-2xl sm:shadow-brand';
-  const mobileChrome =
-    'right-3 left-3 bottom-3 max-h-[70vh] rounded-2xl shadow-brand';
+  //
+  // Two distinct anchorings, picked off the matchMedia hook so we never ship
+  // conflicting left/right rules to the same viewport. Building a single
+  // className with both mobile *and* desktop position utilities causes the
+  // mobile `left-3` to stick on desktop (Tailwind has no `sm:left-auto` in
+  // the mobile block), which is what was overlaying the felt on the left.
+  const chrome = isDesktop
+    ? 'right-4 top-20 bottom-4 w-80 rounded-2xl bg-surface/35 shadow-[0_18px_50px_-20px_rgba(0,0,0,.6)] hover:bg-surface/55 focus-within:bg-surface/70 transition-colors'
+    : 'right-3 left-3 bottom-3 max-h-[70vh] rounded-2xl shadow-brand bg-surface/95';
   return (
     <aside
       className={
-        'fixed z-30 flex flex-col border border-border-hi bg-surface/95 backdrop-blur ' +
-        mobileChrome +
-        ' ' +
-        desktopChrome
+        'fixed z-30 flex flex-col border border-white/10 backdrop-blur-md ' +
+        chrome
       }
     >
-      <header className="flex items-center justify-between border-b border-border px-3 py-2">
+      <header className="flex items-center justify-between border-b border-white/5 px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink-mute">
+          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-ink-soft">
             Table chat
           </span>
           <span className="h-1.5 w-1.5 rounded-full bg-sunset" />
@@ -121,7 +124,7 @@ export function ChatPanel({ room, mySessionId }: Props) {
         ))}
       </div>
 
-      <div className="flex gap-1.5 border-t border-border p-2">
+      <div className="flex gap-1.5 border-t border-white/5 p-2">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -130,7 +133,7 @@ export function ChatPanel({ room, mySessionId }: Props) {
           }}
           maxLength={280}
           placeholder="Say something nice"
-          className="flex-1 rounded-lg border border-border bg-bg-2 px-2.5 py-1.5 text-sm text-ink outline-none"
+          className="flex-1 rounded-lg border border-white/10 bg-bg-2/60 px-2.5 py-1.5 text-sm text-ink outline-none placeholder:text-ink-mute focus:bg-bg-2"
         />
         <button
           onClick={send}

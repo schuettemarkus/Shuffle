@@ -4,6 +4,7 @@
 export const ROOMS = {
   lobby: 'lobby',
   blackjack: 'blackjack',
+  craps: 'craps',
 } as const;
 
 export type RoomName = (typeof ROOMS)[keyof typeof ROOMS];
@@ -28,6 +29,9 @@ export const C2S = {
   hostPauseTable: 'hostPauseTable',// payload: { paused }
   hostKick: 'hostKick',            // payload: { sessionId }
   hostMute: 'hostMute',            // payload: { sessionId, muted }
+
+  // Lobby-scope host: rename the lobby (only the lobby host can send this).
+  lobbySetName: 'lobbySetName',    // payload: { name }
 } as const;
 
 // Server -> client (broadcast notifications; state is synced via schema)
@@ -39,6 +43,9 @@ export const S2C = {
   handResult: 'handResult',        // payload: HandResult
   chat: 'chat',                    // payload: ChatMessage
   handHistory: 'handHistory',      // payload: HandRecord[]  (sent on request / on join)
+  // Craps
+  rollResult: 'rollResult',        // payload: RollResult
+  diceReveal: 'diceReveal',        // payload: { roll, seed, commitHash }
 } as const;
 
 export interface ChatMessage {
@@ -61,6 +68,15 @@ export interface HandRecord {
     bet: number;
     delta: number;
     outcome: 'win' | 'lose' | 'push' | 'blackjack' | 'bust' | 'surrender';
+    // Split-hand result (when the seat split). Absent when the seat did not
+    // split this hand.
+    splitHand?: { rank: string; suit: string }[];
+    splitDelta?: number;
+    splitOutcome?: 'win' | 'lose' | 'push' | 'blackjack' | 'bust' | 'surrender';
+    // Royal Match side-bet (when the seat opted in).
+    royalMatchBet?: number;
+    royalMatchOutcome?: 'none' | 'lose' | 'easy' | 'royal';
+    royalMatchDelta?: number;
   }>;
   seed: string;
   commitHash: string;
@@ -73,8 +89,12 @@ export interface HandResult {
   perSeat: Array<{
     seatIndex: number;
     playerId: string;
-    delta: number;          // chip change (+payout - bet)
+    delta: number;          // chip change (+payout - bet) — main hand only
     outcome: 'win' | 'lose' | 'push' | 'blackjack' | 'bust' | 'surrender';
+    splitDelta?: number;    // chip change from split hand (if any)
+    splitOutcome?: 'win' | 'lose' | 'push' | 'blackjack' | 'bust' | 'surrender';
+    royalMatchDelta?: number;
+    royalMatchOutcome?: 'none' | 'lose' | 'easy' | 'royal';
   }>;
   dealerValue: number;
 }
